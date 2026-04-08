@@ -62,20 +62,24 @@ Only return valid JSON, no other text.`)
 
 // Generate job details from a description
 export async function generateJobFromDescription(description) {
-  return askAIJSON(description, `You are an AI assistant for a facility management / restoration company.
+  return askAIJSON(description, `You are an AI assistant for a facility management / restoration company in Canada.
 Based on the following description (could be a phone call summary, email, or notes), extract job details and return JSON:
 {
-  "name": "short job name, e.g. 'Water Damage - 45 King St'",
-  "description": "detailed scope of work",
+  "name": "short job name including address, e.g. 'Water Damage - 45 King St'",
+  "description": "a clean, professional scope of work summarizing what needs to be done. Include specific details like unit numbers, room types, materials needed. This goes in the job description field.",
+  "notes": "put any extra details here that don't fit the scope — unit lists, special instructions, measurements, options to discuss with client, access codes, contact info",
   "job_type": "water_damage" | "fire_damage" | "mold_remediation" | "storm_damage" | "hvac" | "plumbing" | "electrical" | "cleaning" | "maintenance" | "inspection" | "renovation" | "general",
   "priority": "emergency" | "urgent" | "normal" | "low",
-  "estimated_value": number or null,
-  "client_name": "if mentioned",
-  "site_address": "if mentioned",
-  "site_city": "if mentioned",
-  "insurance_company": "if mentioned",
-  "insurance_claim_number": "if mentioned"
+  "estimated_value": number or null (estimate if enough info is given),
+  "client_name": "client or property manager name if mentioned, otherwise null",
+  "site_address": "street address only (no city/province)",
+  "site_city": "city name — try to infer from context if not explicitly stated",
+  "site_province_state": "province or state code (e.g. QC, ON, BC) — infer from context like area codes, street names, language used",
+  "insurance_company": "if mentioned, otherwise null",
+  "insurance_claim_number": "if mentioned, otherwise null"
 }
+IMPORTANT: Always try to fill site_city and site_province_state even if you have to infer from clues in the text (French text = likely QC, 514/438 area code = Montreal QC, 416/647 = Toronto ON, etc).
+Put unit numbers, detailed breakdowns, and options in the "notes" field, not in the description.
 Only return valid JSON, no other text.`)
 }
 

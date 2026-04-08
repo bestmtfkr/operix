@@ -393,11 +393,13 @@ export default function JobsList() {
               onResult={(data) => {
                 if (data.name) updateForm('name', data.name)
                 if (data.description) updateForm('description', data.description)
+                if (data.notes) updateForm('notes', data.notes)
                 if (data.job_type) updateForm('job_type', data.job_type)
                 if (data.priority) updateForm('priority', data.priority)
                 if (data.estimated_value) updateForm('estimated_value', data.estimated_value.toString())
                 if (data.site_address) updateForm('site_address', data.site_address)
                 if (data.site_city) updateForm('site_city', data.site_city)
+                if (data.site_province_state) updateForm('site_province_state', data.site_province_state)
                 if (data.insurance_company) updateForm('insurance_company', data.insurance_company)
                 if (data.insurance_claim_number) updateForm('insurance_claim_number', data.insurance_claim_number)
                 // Try to match client by name
