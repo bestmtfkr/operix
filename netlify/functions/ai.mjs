@@ -15,7 +15,7 @@ export default async (req, context) => {
 
   try {
     const body = await req.json()
-    const { prompt, system, max_tokens } = body
+    const { prompt, system, max_tokens, model } = body
 
     if (!prompt) {
       return new Response(JSON.stringify({ error: 'Prompt required' }), { status: 400 })
@@ -34,7 +34,7 @@ export default async (req, context) => {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: model === 'haiku' ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-20250514',
         max_tokens: max_tokens || 1024,
         system: system || 'You are a helpful assistant for a facility management company. Be concise and professional.',
         messages: [{ role: 'user', content: prompt }]

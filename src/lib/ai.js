@@ -1,10 +1,11 @@
 // AI helper — calls Netlify serverless function which holds the API key
-export async function askAI(prompt, system, maxTokens) {
+// model: 'haiku' for cheap/fast, default is sonnet for quality
+export async function askAI(prompt, system, maxTokens, model) {
   try {
     const res = await fetch('/.netlify/functions/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, system, max_tokens: maxTokens || 1024 })
+      body: JSON.stringify({ prompt, system, max_tokens: maxTokens || 1024, model: model || 'sonnet' })
     })
 
     const data = await res.json()
@@ -20,8 +21,8 @@ export async function askAI(prompt, system, maxTokens) {
 }
 
 // Parse AI response as JSON (with fallback)
-export async function askAIJSON(prompt, system, maxTokens) {
-  const result = await askAI(prompt, system, maxTokens)
+export async function askAIJSON(prompt, system, maxTokens, model) {
+  const result = await askAI(prompt, system, maxTokens, model)
   if (!result) return null
   try {
     // Extract JSON from response (handles markdown code blocks)
@@ -36,8 +37,21 @@ export async function askAIJSON(prompt, system, maxTokens) {
 
 // ─── SPECIFIC AI FUNCTIONS ──────────────────────
 
-// Analyze an email and extract structured data
-export async function analyzeEmail(emailText) {
+// CHEAP: Quick categorize email using Haiku (~$0.001 per email)
+export async function categorizeEmail(emailText) {
+  return askAIJSON(emailText, `Categorize this email for a facility management company. Return JSON:
+{
+  "category": "insurance" | "client" | "supplier" | "pm" | "internal" | "urgent",
+  "priority": "urgent" | "high" | "normal" | "low",
+  "summary": "one sentence summary",
+  "suggested_action": "create_job" | "follow_up" | "none",
+  "from_name": "sender name if visible"
+}
+Only return valid JSON.`, 256, 'haiku')
+}
+
+// FULL: Deep analysis using Sonnet — only called when user opens an email (~$0.02)
+export async function analyzeEmailFull(emailText) {
   return askAIJSON(emailText, `You are an expert AI assistant for a facility management / restoration company in Canada.
 Your job is to extract EVERY piece of useful information from emails. Be thorough — miss nothing.
 

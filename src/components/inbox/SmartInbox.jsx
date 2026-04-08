@@ -3,8 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../shared/Toast'
 import Modal from '../shared/Modal'
-import { analyzeEmail } from '../../lib/ai'
-import { askAIJSON } from '../../lib/ai'
+import { categorizeEmail, analyzeEmailFull, askAIJSON } from '../../lib/ai'
 
 const CAT_COLORS = {
   insurance: { bg: 'rgba(139,92,246,0.12)', color: '#8B5CF6' },
@@ -92,28 +91,28 @@ export default function SmartInbox() {
         return
       }
 
-      // Analyze each new email with AI and save
+      // Quick categorize with Haiku (cheap ~$0.001/email) — full analysis happens when user opens
       let saved = 0
       for (const email of newEmails) {
-        const aiResult = await analyzeEmail(`From: ${email.from}\nSubject: ${email.subject}\n\n${email.body}`)
+        const quick = await categorizeEmail(`From: ${email.from}\nSubject: ${email.subject}\n\n${email.body.slice(0, 500)}`)
 
         const { error } = await supabase.from('inbox_emails').insert({
           company_id: companyId,
           from_address: email.from,
-          from_name: aiResult?.from_name || email.from.split('<')[0].trim(),
+          from_name: quick?.from_name || email.from.split('<')[0].trim(),
           subject: email.subject,
           body: email.body,
           raw_text: `From: ${email.from}\nSubject: ${email.subject}\n\n${email.body}`,
-          categories: aiResult ? [aiResult.category].filter(Boolean) : ['client'],
-          priority: aiResult?.priority || 'normal',
-          summary: aiResult?.summary || email.snippet,
-          suggested_action: aiResult?.suggested_action || 'none',
-          draft_reply: aiResult?.draft_reply || '',
+          categories: quick ? [quick.category].filter(Boolean) : ['client'],
+          priority: quick?.priority || 'normal',
+          summary: quick?.summary || email.snippet,
+          suggested_action: quick?.suggested_action || 'none',
+          draft_reply: '',
           status: 'unread',
           metadata: {
             gmail_id: email.gmail_id,
             thread_id: email.thread_id,
-            extracted_data: aiResult?.extracted_data || {},
+            needs_full_analysis: true,
             date: email.date
           }
         })
@@ -157,22 +156,23 @@ export default function SmartInbox() {
   async function analyzeAndSave() {
     if (!inputText.trim()) { showToast('Paste an email first'); return }
     setAnalyzing(true)
-    const result = await analyzeEmail(inputText)
+    // Quick categorize with Haiku (cheap) — full analysis when user opens
+    const result = await categorizeEmail(inputText.slice(0, 500))
     if (!result) { showToast('AI could not analyze'); setAnalyzing(false); return }
 
     const { error } = await supabase.from('inbox_emails').insert({
       company_id: companyId,
-      from_address: result.from_email || result.from_name || 'Unknown',
+      from_address: result.from_name || 'Unknown',
       from_name: result.from_name,
-      subject: result.subject || 'No subject',
+      subject: result.summary || 'Pasted email',
       body: inputText, raw_text: inputText,
       categories: [result.category].filter(Boolean),
       priority: result.priority || 'normal',
       summary: result.summary || '',
       suggested_action: result.suggested_action || 'none',
-      draft_reply: result.draft_reply || '',
+      draft_reply: '',
       status: 'unread',
-      metadata: { extracted_data: result.extracted_data || {} }
+      metadata: { needs_full_analysis: true }
     })
 
     if (error) { showToast('Error saving'); setAnalyzing(false); return }
@@ -325,7 +325,7 @@ Only return valid JSON.`
     setOpening(true)
 
     // Open detail immediately — don't wait for AI
-    setShowDetail({ ...email, _openedFrom: tab })
+    setShowDetail({ ...email, _openedFrom: tab, _analyzing: email.metadata?.needs_full_analysis })
 
     // Mark as read in background
     if (email.status === 'unread') {
@@ -333,12 +333,42 @@ Only return valid JSON.`
       email.status = 'read'
     }
 
-    // Suggest job match in background (updates the modal after it loads)
+    // Run FULL analysis with Sonnet if not done yet (on-demand, only when user opens)
+    if (email.metadata?.needs_full_analysis) {
+      const fullText = `From: ${email.from_name || email.from_address}\nSubject: ${email.subject}\n\n${email.body || email.raw_text}`
+      analyzeEmailFull(fullText).then(async (fullResult) => {
+        if (fullResult) {
+          // Update in database
+          await supabase.from('inbox_emails').update({
+            summary: fullResult.summary || email.summary,
+            draft_reply: fullResult.draft_reply || '',
+            metadata: {
+              ...email.metadata,
+              needs_full_analysis: false,
+              extracted_data: fullResult.extracted_data || {}
+            }
+          }).eq('id', email.id)
+
+          // Update the modal
+          const updated = {
+            ...email,
+            summary: fullResult.summary || email.summary,
+            draft_reply: fullResult.draft_reply || '',
+            metadata: { ...email.metadata, needs_full_analysis: false, extracted_data: fullResult.extracted_data || {} },
+            _openedFrom: tab,
+            _analyzing: false
+          }
+          setShowDetail(prev => prev?.id === email.id ? updated : prev)
+        }
+      })
+    }
+
+    // Suggest job match in background
     if (!email.metadata?.linked_job_id && !email._suggestion) {
       suggestJobMatch(email).then(suggestion => {
         if (suggestion) {
           email._suggestion = suggestion
-          setShowDetail(prev => prev?.id === email.id ? { ...email, _suggestion: suggestion } : prev)
+          setShowDetail(prev => prev?.id === email.id ? { ...prev, _suggestion: suggestion } : prev)
         }
       })
     }
@@ -591,8 +621,12 @@ Only return valid JSON.`
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <span style={{ fontSize: 14 }}>🤖</span>
               <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--primary)', letterSpacing: 0.5 }}>AI SUMMARY</span>
+              {showDetail._analyzing && <div className="spinner" style={{ width: 12, height: 12, borderWidth: 2, marginLeft: 4 }} />}
             </div>
-            <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.7 }}>{showDetail.summary}</div>
+            <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.7 }}>
+              {showDetail.summary}
+              {showDetail._analyzing && <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 8 }}>Running deep analysis...</div>}
+            </div>
           </div>
 
           {/* AI Job Suggestion */}
