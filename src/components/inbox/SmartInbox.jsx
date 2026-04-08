@@ -464,105 +464,129 @@ Only return valid JSON.`
 
       {/* Email Detail Modal */}
       {showDetail && (
-        <Modal title="Email" onClose={() => setShowDetail(null)}>
-          <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 3 }}>From: {showDetail.from_name || showDetail.from_address}</div>
-          <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 10 }}>{showDetail.subject}</div>
-
-          <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
-            {(showDetail.categories || []).map(c => {
-              const s = CAT_COLORS[c] || CAT_COLORS.client
-              return <span key={c} style={{ padding: '3px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700, background: s.bg, color: s.color }}>{c.toUpperCase()}</span>
-            })}
+        <Modal title={null} onClose={() => setShowDetail(null)}>
+          {/* Header */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+                {showDetail.from_name || showDetail.from_address}
+              </div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {(showDetail.categories || []).map(c => {
+                  const s = CAT_COLORS[c] || CAT_COLORS.client
+                  return <span key={c} style={{ padding: '3px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700, background: s.bg, color: s.color }}>{c.toUpperCase()}</span>
+                })}
+                {showDetail.priority === 'urgent' && <span style={{ padding: '3px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700, background: 'rgba(255,59,92,0.12)', color: '#FF3B5C' }}>URGENT</span>}
+              </div>
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.3 }}>{showDetail.subject}</div>
           </div>
+
+          {/* Linked status */}
+          {showDetail.metadata?.linked_job_id && (() => {
+            const lj = jobs.find(j => j.id === showDetail.metadata.linked_job_id)
+            return lj ? (
+              <div style={{ background: 'rgba(33,150,243,0.06)', border: '1px solid rgba(33,150,243,0.15)', borderRadius: 14, padding: '12px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 18 }}>🔗</span>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--blue)', letterSpacing: 0.5 }}>LINKED TO</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>{lj.job_number} — {lj.name}</div>
+                </div>
+              </div>
+            ) : null
+          })()}
 
           {/* AI Summary */}
-          <div style={{ background: 'rgba(0,212,160,0.04)', border: '1px solid rgba(0,212,160,0.12)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--primary)', marginBottom: 4 }}>🤖 AI SUMMARY</div>
-            <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.6 }}>{showDetail.summary}</div>
-          </div>
-
-          {/* Email body */}
-          <div style={{ background: 'var(--bg2)', borderRadius: 12, padding: 12, fontSize: 12, color: 'var(--text2)', lineHeight: 1.6, maxHeight: 150, overflow: 'auto', whiteSpace: 'pre-wrap', marginBottom: 10 }}>
-            {showDetail.body || showDetail.raw_text}
+          <div style={{ background: 'rgba(0,212,160,0.04)', border: '1px solid rgba(0,212,160,0.12)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <span style={{ fontSize: 14 }}>🤖</span>
+              <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--primary)', letterSpacing: 0.5 }}>AI SUMMARY</span>
+            </div>
+            <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.7 }}>{showDetail.summary}</div>
           </div>
 
           {/* AI Job Suggestion */}
-          {/* AI finding match indicator */}
           {!showDetail.metadata?.linked_job_id && !showDetail._suggestion && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0', color: 'var(--text3)', fontSize: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', marginBottom: 14, background: 'var(--bg2)', borderRadius: 12 }}>
               <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-              Finding matching job...
+              <span style={{ color: 'var(--text3)', fontSize: 13 }}>Finding matching job...</span>
             </div>
           )}
 
-          {showDetail._suggestion && showDetail._suggestion.job_id && (
-            <div style={{ background: 'rgba(33,150,243,0.06)', border: '1px solid rgba(33,150,243,0.2)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--blue)', marginBottom: 6 }}>🤖 AI SUGGESTS LINKING TO:</div>
-              {(() => {
-                const suggestedJob = jobs.find(j => j.id === showDetail._suggestion.job_id)
-                return suggestedJob ? (
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>{suggestedJob.name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{suggestedJob.job_number} · {suggestedJob.clients?.name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>Confidence: {showDetail._suggestion.confidence} — {showDetail._suggestion.reason}</div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                      <button onClick={() => linkEmailToJob(showDetail.id, suggestedJob.id)} style={{
-                        flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 700,
-                        background: 'linear-gradient(135deg, var(--primary), var(--primary2))',
-                        border: 'none', color: '#000', cursor: 'pointer', fontFamily: 'DM Sans'
-                      }}>✓ Confirm Link</button>
-                      <button onClick={() => { showDetail._suggestion = null; setShowDetail({ ...showDetail }) }} style={{
-                        padding: '10px 14px', borderRadius: 10, background: 'var(--card2)',
-                        border: '1px solid var(--border)', color: 'var(--text2)', fontSize: 12,
-                        cursor: 'pointer', fontFamily: 'DM Sans'
-                      }}>✕ Wrong</button>
-                    </div>
-                  </div>
-                ) : <div style={{ fontSize: 12, color: 'var(--text3)' }}>Job not found</div>
-              })()}
-            </div>
-          )}
+          {showDetail._suggestion && showDetail._suggestion.job_id && !showDetail.metadata?.linked_job_id && (() => {
+            const suggestedJob = jobs.find(j => j.id === showDetail._suggestion.job_id)
+            return suggestedJob ? (
+              <div style={{ background: 'rgba(33,150,243,0.06)', border: '1px solid rgba(33,150,243,0.2)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                  <span style={{ fontSize: 14 }}>🤖</span>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--blue)', letterSpacing: 0.5 }}>AI SUGGESTS LINKING TO</span>
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>{suggestedJob.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 4 }}>{suggestedJob.job_number} · {suggestedJob.clients?.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12, lineHeight: 1.5 }}>
+                  Confidence: <strong>{showDetail._suggestion.confidence}</strong> — {showDetail._suggestion.reason}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => linkEmailToJob(showDetail.id, suggestedJob.id)} className="btn btn-primary" style={{ flex: 1, padding: 12, fontSize: 13 }}>
+                    ✓ Confirm Link
+                  </button>
+                  <button onClick={() => { showDetail._suggestion = null; setShowDetail({ ...showDetail }) }} className="btn btn-secondary" style={{ padding: '12px 16px', fontSize: 13 }}>
+                    ✕ Wrong
+                  </button>
+                </div>
+              </div>
+            ) : null
+          })()}
 
           {/* Manual link */}
           {!showDetail.metadata?.linked_job_id && (
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--text3)', letterSpacing: 1, marginBottom: 6 }}>LINK TO JOB</div>
-              <select className="form-input" style={{ fontSize: 13 }} onChange={e => { if (e.target.value) linkEmailToJob(showDetail.id, e.target.value) }}>
-                <option value="">Select job to link...</option>
+            <div style={{ marginBottom: 14 }}>
+              <label className="form-label">LINK TO JOB MANUALLY</label>
+              <select className="form-input" onChange={e => { if (e.target.value) linkEmailToJob(showDetail.id, e.target.value) }}>
+                <option value="">Select job...</option>
                 {jobs.map(j => <option key={j.id} value={j.id}>{j.job_number} — {j.name} ({j.clients?.name})</option>)}
               </select>
             </div>
           )}
 
-          {showDetail.metadata?.linked_job_id && (
-            <div style={{ background: 'rgba(33,150,243,0.06)', border: '1px solid rgba(33,150,243,0.15)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--blue)', marginBottom: 4 }}>🔗 LINKED TO</div>
-              {(() => {
-                const lj = jobs.find(j => j.id === showDetail.metadata.linked_job_id)
-                return lj ? <div style={{ fontSize: 13, fontWeight: 700 }}>{lj.job_number} — {lj.name}</div> : <div>Job not found</div>
-              })()}
+          {/* Email body — expandable */}
+          <details style={{ marginBottom: 14 }}>
+            <summary style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, cursor: 'pointer', padding: '8px 0', userSelect: 'none' }}>
+              ORIGINAL EMAIL ▾
+            </summary>
+            <div style={{ background: 'var(--bg2)', borderRadius: 12, padding: 16, fontSize: 14, color: 'var(--text2)', lineHeight: 1.8, whiteSpace: 'pre-wrap', marginTop: 8, maxHeight: 300, overflow: 'auto' }}>
+              {showDetail.body || showDetail.raw_text}
             </div>
-          )}
+          </details>
 
-          {/* Draft reply */}
+          {/* Suggested Reply */}
           {showDetail.draft_reply && (
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--text3)', letterSpacing: 1, marginBottom: 6 }}>SUGGESTED REPLY</div>
-              <textarea className="form-input" style={{ fontSize: 12, minHeight: 60 }} defaultValue={showDetail.draft_reply} />
-              <button className="btn btn-secondary" style={{ marginTop: 6, fontSize: 11, padding: '6px 12px' }}
-                onClick={() => navigator.clipboard.writeText(showDetail.draft_reply).then(() => showToast('Copied'))}>📋 Copy</button>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <label className="form-label" style={{ margin: 0 }}>SUGGESTED REPLY</label>
+                <button className="btn btn-secondary" style={{ padding: '5px 12px', fontSize: 11 }}
+                  onClick={() => {
+                    const el = document.getElementById('draft-reply-text')
+                    navigator.clipboard.writeText(el?.value || showDetail.draft_reply).then(() => showToast('Copied to clipboard'))
+                  }}>📋 Copy</button>
+              </div>
+              <textarea id="draft-reply-text" className="form-input" style={{
+                fontSize: 14, lineHeight: 1.7, minHeight: 160, color: 'var(--text)',
+                background: 'var(--bg2)', padding: 16
+              }} defaultValue={showDetail.draft_reply} />
             </div>
           )}
 
-          {/* Actions */}
-          {!showDetail.metadata?.linked_job_id && showDetail.suggested_action === 'create_job' && (
-            <button className="btn btn-primary btn-full" style={{ marginBottom: 8 }} onClick={() => createJobFromEmail(showDetail)}>
-              🤖 Create New Job from Email
-            </button>
-          )}
-
-          <button className="btn btn-danger btn-full" style={{ marginBottom: 8 }} onClick={() => deleteEmail(showDetail.id)}>Delete</button>
-          <button className="btn btn-secondary btn-full" onClick={() => setShowDetail(null)}>Close</button>
+          {/* Action buttons */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+            {!showDetail.metadata?.linked_job_id && showDetail.suggested_action === 'create_job' && (
+              <button className="btn btn-primary btn-full" style={{ padding: 14, fontSize: 14 }} onClick={() => createJobFromEmail(showDetail)}>
+                🤖 Create New Job from Email
+              </button>
+            )}
+            <button className="btn btn-danger btn-full" style={{ padding: 12 }} onClick={() => deleteEmail(showDetail.id)}>Delete Email</button>
+            <button className="btn btn-secondary btn-full" style={{ padding: 12 }} onClick={() => setShowDetail(null)}>Close</button>
+          </div>
         </Modal>
       )}
     </div>
