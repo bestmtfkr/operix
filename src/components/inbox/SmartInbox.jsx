@@ -41,7 +41,7 @@ export default function SmartInbox() {
     // Sync on first load
     fetchGmailEmails(true)
     // Then every 5 minutes
-    const interval = setInterval(() => fetchGmailEmails(true), 2 * 60 * 1000)
+    const interval = setInterval(() => fetchGmailEmails(true), 30 * 1000)
     return () => clearInterval(interval)
   }, [gmailConnected, companyId])
 
