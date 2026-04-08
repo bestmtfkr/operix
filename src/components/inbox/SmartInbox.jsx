@@ -267,7 +267,7 @@ Only return valid JSON.`
     setOpening(true)
 
     // Open detail immediately — don't wait for AI
-    setShowDetail({ ...email })
+    setShowDetail({ ...email, _openedFrom: tab })
 
     // Mark as read in background
     if (email.status === 'unread') {
@@ -465,6 +465,21 @@ Only return valid JSON.`
       {/* Email Detail Modal */}
       {showDetail && (
         <Modal title={null} onClose={() => setShowDetail(null)}>
+          {/* Sort mode banner */}
+          {showDetail._openedFrom === 'suggestions' && !showDetail.metadata?.linked_job_id && (
+            <div style={{
+              background: 'rgba(255,184,0,0.08)', border: '1px solid rgba(255,184,0,0.2)',
+              borderRadius: 12, padding: '12px 14px', marginBottom: 14,
+              display: 'flex', alignItems: 'center', gap: 10
+            }}>
+              <span style={{ fontSize: 20 }}>📂</span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--yellow)' }}>Sort this email</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)' }}>Link it to an existing job or create a new one</div>
+              </div>
+            </div>
+          )}
+
           {/* Header */}
           <div style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -579,9 +594,9 @@ Only return valid JSON.`
 
           {/* Action buttons */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-            {!showDetail.metadata?.linked_job_id && showDetail.suggested_action === 'create_job' && (
+            {!showDetail.metadata?.linked_job_id && (
               <button className="btn btn-primary btn-full" style={{ padding: 14, fontSize: 14 }} onClick={() => createJobFromEmail(showDetail)}>
-                🤖 Create New Job from Email
+                + Create New Job from Email
               </button>
             )}
             <button className="btn btn-danger btn-full" style={{ padding: 12 }} onClick={() => deleteEmail(showDetail.id)}>Delete Email</button>
