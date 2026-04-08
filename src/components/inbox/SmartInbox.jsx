@@ -346,8 +346,12 @@ Only return valid JSON.`
 
     // Run FULL analysis with Sonnet if not done yet (on-demand, only when user opens)
     if (email.metadata?.needs_full_analysis) {
-      const fullText = `From: ${email.from_name || email.from_address}\nSubject: ${email.subject}\n\n${email.body || email.raw_text}`
-      analyzeEmailFull(fullText).then(async (fullResult) => {
+      const body = (email.body || email.raw_text || '').slice(0, 2000)
+      const fullText = `From: ${email.from_name || email.from_address}\nSubject: ${email.subject}\n\n${body}`
+      Promise.race([
+        analyzeEmailFull(fullText),
+        new Promise(r => setTimeout(() => r(null), 15000)) // 15s timeout
+      ]).then(async (fullResult) => {
         if (fullResult) {
           // Update in database
           await supabase.from('inbox_emails').update({
@@ -370,6 +374,9 @@ Only return valid JSON.`
             _analyzing: false
           }
           setShowDetail(prev => prev?.id === email.id ? updated : prev)
+        } else {
+          // Timed out or failed — stop spinner
+          setShowDetail(prev => prev?.id === email.id ? { ...prev, _analyzing: false } : prev)
         }
       })
     }

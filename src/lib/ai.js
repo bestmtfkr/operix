@@ -86,7 +86,7 @@ RULES:
 - The summary should be DETAILED — a busy contractor should understand the full situation from reading just the summary.
 - scope_details should capture every specific work item, material, and area mentioned.
 - If the email is in French, keep extracted data in the original language but summary can be bilingual.
-Only return valid JSON, no other text.`, 2048)
+Only return valid JSON, no other text.`, 1024)
 }
 
 // Generate job details from a description
