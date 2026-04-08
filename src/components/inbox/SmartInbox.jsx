@@ -35,6 +35,16 @@ export default function SmartInbox() {
     if (companyId) { loadEmails(); loadJobs(); loadClients(); checkGmail() }
   }, [companyId])
 
+  // Auto-sync Gmail every 5 minutes
+  useEffect(() => {
+    if (!gmailConnected || !companyId) return
+    // Sync on first load
+    fetchGmailEmails(true)
+    // Then every 5 minutes
+    const interval = setInterval(() => fetchGmailEmails(true), 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [gmailConnected, companyId])
+
   // Listen for Gmail OAuth callback
   useEffect(() => {
     function handleMessage(e) {
@@ -68,7 +78,8 @@ export default function SmartInbox() {
     if (!w) showToast('Popup blocked — allow popups for this site')
   }
 
-  async function fetchGmailEmails() {
+  async function fetchGmailEmails(silent = false) {
+    if (syncing) return // Don't stack syncs
     setSyncing(true)
     try {
       // Only send company_id — tokens are read server-side
@@ -79,14 +90,14 @@ export default function SmartInbox() {
       })
 
       const data = await res.json()
-      if (data.error) { showToast('Gmail: ' + data.error); setSyncing(false); return }
+      if (data.error) { if (!silent) showToast('Gmail: ' + data.error); setSyncing(false); return }
 
       // Check which emails we already have
       const existingIds = emails.map(e => e.metadata?.gmail_id).filter(Boolean)
       const newEmails = (data.emails || []).filter(e => !existingIds.includes(e.gmail_id))
 
       if (newEmails.length === 0) {
-        showToast('No new emails')
+        if (!silent) showToast('No new emails')
         setSyncing(false)
         return
       }
@@ -120,7 +131,7 @@ export default function SmartInbox() {
         if (!error) saved++
       }
 
-      showToast(`${saved} new emails synced and analyzed`)
+      if (!silent || saved > 0) showToast(`${saved} new email${saved !== 1 ? 's' : ''} synced`)
       loadEmails()
     } catch (err) {
       showToast('Gmail sync failed')
@@ -434,15 +445,15 @@ Only return valid JSON.`
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 16 }}>✅</span>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)' }}>Gmail Connected</div>
-                <div style={{ fontSize: 11, color: 'var(--text3)' }}>{gmailEmail}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)' }}>Gmail Connected — Auto-syncing</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)' }}>{gmailEmail} · checks every 5 min</div>
               </div>
             </div>
-            <button onClick={() => fetchGmailEmails()} disabled={syncing} style={{
+            <button onClick={() => fetchGmailEmails(false)} disabled={syncing} style={{
               padding: '8px 14px', borderRadius: 10, fontSize: 12, fontWeight: 700,
-              background: syncing ? 'var(--card2)' : 'linear-gradient(135deg, var(--primary), var(--primary2))',
-              border: 'none', color: syncing ? 'var(--text2)' : '#000', cursor: 'pointer', fontFamily: 'DM Sans'
-            }}>{syncing ? '⏳ Syncing...' : '🔄 Sync Now'}</button>
+              background: syncing ? 'var(--card2)' : 'var(--card)',
+              border: '1px solid var(--border)', color: syncing ? 'var(--text3)' : 'var(--text2)', cursor: 'pointer', fontFamily: 'DM Sans'
+            }}>{syncing ? '⏳ ...' : '🔄'}</button>
           </div>
         ) : (
           <button onClick={connectGmail} style={{
