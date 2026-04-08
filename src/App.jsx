@@ -13,6 +13,7 @@ const BillingScreen = lazy(() => import('./components/billing/BillingScreen'))
 const CompanySettings = lazy(() => import('./components/settings/CompanySettings'))
 const OnboardingScreen = lazy(() => import('./components/auth/OnboardingScreen'))
 const ReportsScreen = lazy(() => import('./components/reports/ReportsScreen'))
+const SmartInbox = lazy(() => import('./components/inbox/SmartInbox'))
 
 function LazyScreen({ children }) {
   return (
@@ -71,7 +72,7 @@ function AppContent() {
       case 'jobs': return <LazyScreen><JobsList /></LazyScreen>
       case 'billing': return <LazyScreen><BillingScreen /></LazyScreen>
       case 'team': return <LazyScreen><TeamScreen /></LazyScreen>
-      case 'inbox': return <ComingSoon title="Inbox" icon="📬" desc="AI Smart Inbox — building next" />
+      case 'inbox': return <LazyScreen><SmartInbox onNavigate={setActiveTab} /></LazyScreen>
       case 'reports': return <LazyScreen><ReportsScreen /></LazyScreen>
       case 'profile': return <LazyScreen><CompanySettings onNavigate={setActiveTab} /></LazyScreen>
       default: return <LazyScreen><Dashboard onNavigate={setActiveTab} /></LazyScreen>

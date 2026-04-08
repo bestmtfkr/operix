@@ -7,8 +7,11 @@ export async function askAI(prompt, system, maxTokens) {
       body: JSON.stringify({ prompt, system, max_tokens: maxTokens || 1024 })
     })
 
-    if (!res.ok) throw new Error('AI request failed')
     const data = await res.json()
+    if (!res.ok) {
+      console.error('AI error:', data)
+      throw new Error(data.error || 'AI request failed')
+    }
     return data.result
   } catch (err) {
     console.error('AI error:', err)

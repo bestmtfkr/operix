@@ -1,8 +1,4 @@
-// Netlify serverless function — holds API key server-side
-// Frontend calls /.netlify/functions/ai with a prompt
-// This function calls Anthropic and returns the response
-
-export default async function handler(req) {
+export default async (req, context) => {
   if (req.method === 'OPTIONS') {
     return new Response('', {
       headers: {
@@ -25,11 +21,16 @@ export default async function handler(req) {
       return new Response(JSON.stringify({ error: 'Prompt required' }), { status: 400 })
     }
 
+    const apiKey = Netlify.env.get('ANTHROPIC_API_KEY')
+    if (!apiKey) {
+      return new Response(JSON.stringify({ error: 'API key not configured' }), { status: 500 })
+    }
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
@@ -42,8 +43,8 @@ export default async function handler(req) {
 
     if (!response.ok) {
       const err = await response.text()
-      console.error('Anthropic API error:', err)
-      return new Response(JSON.stringify({ error: 'AI service error' }), { status: 500 })
+      console.error('Anthropic error:', err)
+      return new Response(JSON.stringify({ error: 'AI error', details: err }), { status: 500 })
     }
 
     const data = await response.json()
@@ -55,7 +56,7 @@ export default async function handler(req) {
 
   } catch (error) {
     console.error('Function error:', error)
-    return new Response(JSON.stringify({ error: 'Internal error' }), { status: 500 })
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 })
   }
 }
 
