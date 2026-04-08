@@ -160,7 +160,7 @@ export default function OnboardingScreen({ user, onComplete }) {
 
             <div className="form-field">
               <label className="form-label">Company Name *</label>
-              <input className="form-input" placeholder="e.g. Atmospec Restoration"
+              <input className="form-input" placeholder="e.g. Summit Restoration Inc."
                 value={form.company_name} onChange={e => updateForm('company_name', e.target.value)} />
             </div>
 

@@ -182,7 +182,7 @@ export default function ClientsList() {
         <Modal title={editing ? 'Edit Client' : 'New Client'} onClose={() => setShowModal(false)}>
           <div className="form-field">
             <label className="form-label">Client Name *</label>
-            <input className="form-input" placeholder="e.g. Ralf Construction"
+            <input className="form-input" placeholder="e.g. Maple Leaf Properties"
               value={form.name} onChange={e => updateForm('name', e.target.value)} />
           </div>
 
