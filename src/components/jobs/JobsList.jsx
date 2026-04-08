@@ -6,6 +6,7 @@ import Modal from '../shared/Modal'
 import { JOB_STAGES, STAGE_LABELS, STAGE_COLORS, JOB_TYPES, JOB_TYPE_LABELS, PRIORITIES, PRIORITY_LABELS, PRIORITY_COLORS } from '../../lib/constants'
 import TasksList from '../tasks/TasksList'
 import JobDetail from './JobDetail'
+import AIJobAssistant from '../shared/AIJobAssistant'
 import CalendarView from './CalendarView'
 import './Jobs.css'
 
@@ -22,6 +23,7 @@ export default function JobsList() {
   const [editing, setEditing] = useState(null)
   const [search, setSearch] = useState('')
   const [detailJobId, setDetailJobId] = useState(null)
+  const [showAI, setShowAI] = useState(false)
 
   const [form, setForm] = useState({
     name: '', client_id: '', description: '', stage: 'lead', priority: 'normal',
@@ -372,7 +374,42 @@ export default function JobsList() {
 
       {/* Modal */}
       {showModal && (
-        <Modal title={editing ? 'Edit Job' : 'New Job'} onClose={() => setShowModal(false)}>
+        <Modal title={editing ? 'Edit Job' : 'New Job'} onClose={() => { setShowModal(false); setShowAI(false) }}>
+          {/* AI Assistant */}
+          {!editing && !showAI && (
+            <button onClick={() => setShowAI(true)} style={{
+              width: '100%', padding: 12, marginBottom: 16, borderRadius: 12,
+              background: 'linear-gradient(135deg, rgba(0,212,160,0.08), rgba(0,153,255,0.08))',
+              border: '1px solid rgba(0,212,160,0.2)', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 10,
+              fontFamily: 'DM Sans', fontSize: 13, fontWeight: 700, color: 'var(--primary)'
+            }}>
+              🤖 Use AI — paste a call, email, or notes to auto-fill
+            </button>
+          )}
+          {showAI && (
+            <AIJobAssistant
+              onClose={() => setShowAI(false)}
+              onResult={(data) => {
+                if (data.name) updateForm('name', data.name)
+                if (data.description) updateForm('description', data.description)
+                if (data.job_type) updateForm('job_type', data.job_type)
+                if (data.priority) updateForm('priority', data.priority)
+                if (data.estimated_value) updateForm('estimated_value', data.estimated_value.toString())
+                if (data.site_address) updateForm('site_address', data.site_address)
+                if (data.site_city) updateForm('site_city', data.site_city)
+                if (data.insurance_company) updateForm('insurance_company', data.insurance_company)
+                if (data.insurance_claim_number) updateForm('insurance_claim_number', data.insurance_claim_number)
+                // Try to match client by name
+                if (data.client_name) {
+                  const match = clients.find(c => c.name.toLowerCase().includes(data.client_name.toLowerCase()))
+                  if (match) updateForm('client_id', match.id)
+                }
+                setShowAI(false)
+              }}
+            />
+          )}
+
           <div className="form-field">
             <label className="form-label">Job Name *</label>
             <input className="form-input" placeholder="e.g. Water Damage — 45 King St"
