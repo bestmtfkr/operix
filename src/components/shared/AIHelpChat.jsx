@@ -52,7 +52,7 @@ Answer in the same language the user writes in (English or French).`,
 
   return (
     <div style={{
-      position: 'fixed', bottom: 80, right: 16, width: 340, maxWidth: 'calc(100vw - 32px)',
+      position: 'fixed', bottom: 70, right: 12, width: 340, maxWidth: 'calc(100vw - 24px)',
       height: 460, maxHeight: 'calc(100vh - 160px)',
       background: 'var(--card)', border: '1px solid var(--border2)',
       borderRadius: 20, display: 'flex', flexDirection: 'column',

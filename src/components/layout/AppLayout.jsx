@@ -85,7 +85,7 @@ export default function AppLayout({ activeTab, onTabChange, children }) {
       {/* Help FAB */}
       {!showHelp && (
         <button onClick={() => setShowHelp(true)} style={{
-          position: 'fixed', bottom: 80, right: 16, width: 44, height: 44,
+          position: 'fixed', bottom: 'calc(56px + var(--safe-bottom) + 70px)', right: 16, width: 42, height: 42,
           borderRadius: 14, background: 'linear-gradient(135deg, var(--primary), var(--primary2))',
           border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 20, cursor: 'pointer', zIndex: 50,
