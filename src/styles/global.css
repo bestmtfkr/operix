@@ -237,12 +237,19 @@ textarea.form-input { resize: none; min-height: 80px; }
   .fab { width: 48px; height: 48px; border-radius: 14px; font-size: 22px; }
 }
 
-/* Desktop: center the app like a phone preview */
+/* Desktop: full width with better layout */
 @media (min-width: 768px) {
-  .app-layout {
-    max-width: 480px; margin: 0 auto;
-    border-left: 1px solid var(--border); border-right: 1px solid var(--border);
-  }
-  .modal { max-width: 480px; }
+  .stat-grid { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  .modal { max-width: 600px; }
   .toast { max-width: 400px; }
+  .form-row { grid-template-columns: 1fr 1fr; }
+  .main-content { padding: 0 40px 16px; }
+  .topbar { padding: 16px 40px 14px; }
+  .tabs { padding: 0 40px; }
+}
+
+@media (min-width: 1200px) {
+  .main-content { padding: 0 80px 16px; }
+  .topbar { padding: 16px 80px 14px; }
+  .tabs { padding: 0 80px; }
 }

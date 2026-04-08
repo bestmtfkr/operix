@@ -40,7 +40,7 @@
 .kanban::-webkit-scrollbar { display: none; }
 
 .kanban-col {
-  min-width: 260px; max-width: 260px; flex-shrink: 0;
+  min-width: 240px; flex: 1; max-width: 320px; flex-shrink: 0;
   background: var(--card); border: 1px solid var(--border);
   border-radius: 18px; overflow: hidden;
   display: flex; flex-direction: column; max-height: calc(100vh - 320px);
