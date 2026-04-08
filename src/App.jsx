@@ -1,16 +1,26 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { ToastProvider } from './components/shared/Toast'
 import LoginScreen from './components/auth/LoginScreen'
 import AppLayout from './components/layout/AppLayout'
-import Dashboard from './components/dashboard/Dashboard'
-import ClientsList from './components/clients/ClientsList'
-import JobsList from './components/jobs/JobsList'
-import TeamScreen from './components/workers/TeamScreen'
-import BillingScreen from './components/billing/BillingScreen'
-import CompanySettings from './components/settings/CompanySettings'
-import OnboardingScreen from './components/auth/OnboardingScreen'
-import ReportsScreen from './components/reports/ReportsScreen'
+
+// Lazy load heavy screens — only download when user navigates to them
+const Dashboard = lazy(() => import('./components/dashboard/Dashboard'))
+const ClientsList = lazy(() => import('./components/clients/ClientsList'))
+const JobsList = lazy(() => import('./components/jobs/JobsList'))
+const TeamScreen = lazy(() => import('./components/workers/TeamScreen'))
+const BillingScreen = lazy(() => import('./components/billing/BillingScreen'))
+const CompanySettings = lazy(() => import('./components/settings/CompanySettings'))
+const OnboardingScreen = lazy(() => import('./components/auth/OnboardingScreen'))
+const ReportsScreen = lazy(() => import('./components/reports/ReportsScreen'))
+
+function LazyScreen({ children }) {
+  return (
+    <Suspense fallback={<div className="loading-center"><div className="spinner" /></div>}>
+      {children}
+    </Suspense>
+  )
+}
 
 function AppContent() {
   const { user, profile, loading } = useAuth()
@@ -51,20 +61,20 @@ function AppContent() {
 
   // User is logged in but has no profile — show onboarding
   if (user && !profile) {
-    return <OnboardingScreen user={user} onComplete={() => window.location.reload()} />
+    return <LazyScreen><OnboardingScreen user={user} onComplete={() => window.location.reload()} /></LazyScreen>
   }
 
   function renderScreen() {
     switch (activeTab) {
-      case 'dashboard': return <Dashboard onNavigate={setActiveTab} />
-      case 'clients': return <ClientsList />
-      case 'jobs': return <JobsList />
-      case 'billing': return <BillingScreen />
-      case 'team': return <TeamScreen />
+      case 'dashboard': return <LazyScreen><Dashboard onNavigate={setActiveTab} /></LazyScreen>
+      case 'clients': return <LazyScreen><ClientsList /></LazyScreen>
+      case 'jobs': return <LazyScreen><JobsList /></LazyScreen>
+      case 'billing': return <LazyScreen><BillingScreen /></LazyScreen>
+      case 'team': return <LazyScreen><TeamScreen /></LazyScreen>
       case 'inbox': return <ComingSoon title="Inbox" icon="📬" desc="AI Smart Inbox — building next" />
-      case 'reports': return <ReportsScreen />
-      case 'profile': return <CompanySettings onNavigate={setActiveTab} />
-      default: return <Dashboard onNavigate={setActiveTab} />
+      case 'reports': return <LazyScreen><ReportsScreen /></LazyScreen>
+      case 'profile': return <LazyScreen><CompanySettings onNavigate={setActiveTab} /></LazyScreen>
+      default: return <LazyScreen><Dashboard onNavigate={setActiveTab} /></LazyScreen>
     }
   }
 
