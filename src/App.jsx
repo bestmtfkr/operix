@@ -65,23 +65,34 @@ function AppContent() {
     return <LazyScreen><OnboardingScreen user={user} onComplete={() => window.location.reload()} /></LazyScreen>
   }
 
-  function renderScreen() {
-    switch (activeTab) {
-      case 'dashboard': return <LazyScreen><Dashboard onNavigate={setActiveTab} /></LazyScreen>
-      case 'clients': return <LazyScreen><ClientsList /></LazyScreen>
-      case 'jobs': return <LazyScreen><JobsList /></LazyScreen>
-      case 'billing': return <LazyScreen><BillingScreen /></LazyScreen>
-      case 'team': return <LazyScreen><TeamScreen /></LazyScreen>
-      case 'inbox': return <LazyScreen><SmartInbox onNavigate={setActiveTab} /></LazyScreen>
-      case 'reports': return <LazyScreen><ReportsScreen /></LazyScreen>
-      case 'profile': return <LazyScreen><CompanySettings onNavigate={setActiveTab} /></LazyScreen>
-      default: return <LazyScreen><Dashboard onNavigate={setActiveTab} /></LazyScreen>
-    }
+  // Keep visited tabs mounted but hidden — no refetch on tab switch
+  const [visitedTabs, setVisitedTabs] = useState(new Set(['dashboard']))
+
+  function handleTabChange(tab) {
+    setVisitedTabs(prev => new Set([...prev, tab]))
+    setActiveTab(tab)
   }
 
+  const tabs = [
+    { id: 'dashboard', el: <Dashboard onNavigate={handleTabChange} /> },
+    { id: 'clients', el: <ClientsList /> },
+    { id: 'jobs', el: <JobsList /> },
+    { id: 'billing', el: <BillingScreen /> },
+    { id: 'team', el: <TeamScreen /> },
+    { id: 'inbox', el: <SmartInbox onNavigate={handleTabChange} /> },
+    { id: 'reports', el: <ReportsScreen /> },
+    { id: 'profile', el: <CompanySettings onNavigate={handleTabChange} /> },
+  ]
+
   return (
-    <AppLayout activeTab={activeTab} onTabChange={setActiveTab}>
-      {renderScreen()}
+    <AppLayout activeTab={activeTab} onTabChange={handleTabChange}>
+      {tabs.map(tab => (
+        visitedTabs.has(tab.id) ? (
+          <div key={tab.id} style={{ display: activeTab === tab.id ? 'block' : 'none' }}>
+            <LazyScreen>{tab.el}</LazyScreen>
+          </div>
+        ) : null
+      ))}
     </AppLayout>
   )
 }

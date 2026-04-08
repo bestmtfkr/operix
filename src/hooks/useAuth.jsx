@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { preloadData } from './useData'
 
 const AuthContext = createContext({})
 const SESSION_TIMEOUT = 30 * 60 * 1000 // 30 minutes
@@ -67,6 +68,8 @@ export function AuthProvider({ children }) {
 
     setProfile(data)
     setLoading(false)
+    // Preload common data for instant tab switching
+    if (data?.company_id) preloadData(data.company_id)
   }
 
   async function signIn(email, password) {
