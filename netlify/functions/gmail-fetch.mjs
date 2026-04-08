@@ -8,7 +8,7 @@ export default async (req) => {
   }
 
   try {
-    const { company_id, max_results } = await req.json()
+    const { company_id, max_results, after_date } = await req.json()
     if (!company_id) {
       return new Response(JSON.stringify({ error: 'company_id required' }), { status: 400 })
     }
@@ -64,7 +64,7 @@ export default async (req) => {
 
     // Fetch messages
     const listRes = await fetch(
-      `https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=${max_results || 10}&q=is:inbox`,
+      `https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=${max_results || 10}&q=is:inbox${after_date ? ' after:' + after_date : ''}`,
       { headers: { Authorization: `Bearer ${token}` } }
     )
     const listData = await listRes.json()

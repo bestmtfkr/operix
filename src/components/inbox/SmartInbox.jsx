@@ -82,11 +82,16 @@ export default function SmartInbox() {
     if (syncing) return // Don't stack syncs
     setSyncing(true)
     try {
-      // Only send company_id — tokens are read server-side
+      // Only fetch emails newer than what we already have
+      const newestEmail = emails.length > 0 ? emails[0] : null
+      const afterDate = newestEmail?.metadata?.date
+        ? new Date(newestEmail.metadata.date).toISOString().split('T')[0].replace(/-/g, '/')
+        : null
+
       const res = await fetch('/.netlify/functions/gmail-fetch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ company_id: companyId, max_results: 100 })
+        body: JSON.stringify({ company_id: companyId, max_results: 100, after_date: afterDate })
       })
 
       const data = await res.json()
