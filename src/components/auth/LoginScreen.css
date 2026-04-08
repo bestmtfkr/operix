@@ -1,0 +1,50 @@
+.login-screen {
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 28px; overflow-y: auto;
+  background: radial-gradient(ellipse at 50% 0%, rgba(0,212,160,0.06) 0%, transparent 60%);
+}
+
+.login-logo { text-align: center; margin-bottom: 44px; }
+
+.login-icon {
+  width: 76px; height: 76px; border-radius: 22px;
+  background: linear-gradient(135deg, rgba(0,212,160,0.15), rgba(0,153,255,0.1));
+  border: 1px solid rgba(0,212,160,0.2);
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-bottom: 18px;
+}
+
+.login-diamond {
+  width: 30px; height: 30px;
+  background: linear-gradient(135deg, var(--primary), var(--primary2));
+  transform: rotate(45deg); border-radius: 6px;
+}
+
+.login-wordmark {
+  font-size: 28px; font-weight: 800; letter-spacing: 6px;
+  background: linear-gradient(135deg, var(--primary), var(--primary2));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+.login-tagline {
+  font-size: 11px; color: var(--text3); letter-spacing: 2.5px;
+  margin-top: 5px; text-transform: uppercase;
+}
+
+.login-card {
+  width: 100%; max-width: 390px;
+  background: linear-gradient(135deg, var(--card), var(--card2));
+  border: 1px solid var(--border2); border-radius: 24px; padding: 32px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.4);
+}
+
+.login-card h2 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+.login-card p { font-size: 13px; color: var(--text2); margin-bottom: 28px; line-height: 1.5; }
+
+.login-error {
+  color: var(--red); font-size: 13px; text-align: center;
+  margin-top: 14px; padding: 10px 14px;
+  background: rgba(255,59,92,0.08); border-radius: 10px;
+  border: 1px solid rgba(255,59,92,0.2);
+}
