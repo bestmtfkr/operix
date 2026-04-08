@@ -58,9 +58,9 @@ export default function OnboardingScreen({ user, onComplete }) {
     }).select().single()
 
     if (compErr || !company) {
-      setError('Error creating company. Please try again.')
+      setError('Error creating company: ' + (compErr?.message || 'Unknown error'))
       setSaving(false)
-      console.error(compErr)
+      console.error('Company error:', compErr)
       return
     }
 
@@ -74,9 +74,9 @@ export default function OnboardingScreen({ user, onComplete }) {
     })
 
     if (profErr) {
-      setError('Error creating profile. Please try again.')
+      setError('Error creating profile: ' + (profErr?.message || 'Unknown error'))
       setSaving(false)
-      console.error(profErr)
+      console.error('Profile error:', profErr)
       return
     }
 
