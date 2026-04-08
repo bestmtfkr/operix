@@ -65,7 +65,8 @@ export default function SmartInbox() {
   }
 
   function connectGmail() {
-    window.open(`/api/gmail/connect?company_id=${companyId}`, 'gmail-auth', 'width=500,height=600,left=200,top=100')
+    const w = window.open(`/api/gmail/connect?company_id=${companyId}`, '_blank', 'width=500,height=600,left=200,top=100')
+    if (!w) showToast('Popup blocked — allow popups for this site')
   }
 
   async function fetchGmailEmails() {
