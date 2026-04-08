@@ -9,7 +9,7 @@ import './AppLayout.css'
 const TABS = [
   { id: 'dashboard', icon: '📊', label: 'Home', module: 'dashboard' },
   { id: 'jobs', icon: '📋', label: 'Jobs', module: 'jobs' },
-  { id: 'clients', icon: '👥', label: 'Clients', module: 'clients' },
+  { id: 'inbox', icon: '📬', label: 'Inbox', module: 'dashboard' },
   { id: 'billing', icon: '💰', label: 'Billing', module: 'billing' },
   { id: 'team', icon: '👷', label: 'Team', module: 'team' },
 ]
@@ -52,6 +52,9 @@ export default function AppLayout({ activeTab, onTabChange, children }) {
         <div className="topbar-right">
           <div className="icon-btn" onClick={() => setShowSearch(true)}>
             🔍
+          </div>
+          <div className="icon-btn" onClick={() => onTabChange('clients')}>
+            👥
           </div>
           <div className="icon-btn" onClick={() => setShowNotifications(true)}>
             🔔
