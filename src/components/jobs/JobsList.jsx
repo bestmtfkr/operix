@@ -22,6 +22,8 @@ export default function JobsList() {
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState(null)
   const [search, setSearch] = useState('')
+  const [stageFilter, setStageFilter] = useState('all')
+  const [sortBy, setSortBy] = useState('newest')
   const [detailJobId, setDetailJobId] = useState(null)
   const [showAI, setShowAI] = useState(false)
 
@@ -211,13 +213,29 @@ export default function JobsList() {
     setForm(prev => ({ ...prev, [field]: value }))
   }
 
-  const filtered = search.trim()
-    ? jobs.filter(j =>
-        j.name.toLowerCase().includes(search.toLowerCase()) ||
-        (j.clients?.name || '').toLowerCase().includes(search.toLowerCase()) ||
-        (j.job_number || '').toLowerCase().includes(search.toLowerCase())
-      )
-    : jobs
+  // Stage counts
+  const stageCounts = {}
+  jobs.forEach(j => { stageCounts[j.stage] = (stageCounts[j.stage] || 0) + 1 })
+
+  // Filter and sort
+  let filtered = jobs
+  if (stageFilter !== 'all') filtered = filtered.filter(j => j.stage === stageFilter)
+  if (search.trim()) {
+    const q = search.toLowerCase()
+    filtered = filtered.filter(j =>
+      j.name.toLowerCase().includes(q) ||
+      (j.clients?.name || '').toLowerCase().includes(q) ||
+      (j.job_number || '').toLowerCase().includes(q)
+    )
+  }
+  filtered = [...filtered].sort((a, b) => {
+    if (sortBy === 'newest') return new Date(b.created_at) - new Date(a.created_at)
+    if (sortBy === 'oldest') return new Date(a.created_at) - new Date(b.created_at)
+    if (sortBy === 'value_high') return (parseFloat(b.estimated_value) || 0) - (parseFloat(a.estimated_value) || 0)
+    if (sortBy === 'value_low') return (parseFloat(a.estimated_value) || 0) - (parseFloat(b.estimated_value) || 0)
+    if (sortBy === 'client') return (a.clients?.name || '').localeCompare(b.clients?.name || '')
+    return 0
+  })
 
   if (detailJobId) {
     return <JobDetail jobId={detailJobId} onBack={() => { setDetailJobId(null); loadJobs() }} />
@@ -260,6 +278,42 @@ export default function JobsList() {
             <span className="search-icon">🔍</span>
             <input placeholder="Search jobs..." value={search} onChange={e => setSearch(e.target.value)} />
           </div>
+
+          {/* Stage Filter Pills */}
+          <div style={{ display: 'flex', gap: 6, padding: '4px 16px 8px', overflowX: 'auto', scrollbarWidth: 'none' }}>
+            <div onClick={() => setStageFilter('all')} style={{
+              padding: '5px 12px', borderRadius: 10, fontSize: 11, fontWeight: 700,
+              cursor: 'pointer', whiteSpace: 'nowrap',
+              border: `1px solid ${stageFilter === 'all' ? 'rgba(0,212,160,0.3)' : 'var(--border)'}`,
+              background: stageFilter === 'all' ? 'rgba(0,212,160,0.1)' : 'var(--card)',
+              color: stageFilter === 'all' ? 'var(--primary)' : 'var(--text2)'
+            }}>All ({jobs.length})</div>
+            {JOB_STAGES.filter(s => stageCounts[s]).map(s => (
+              <div key={s} onClick={() => setStageFilter(stageFilter === s ? 'all' : s)} style={{
+                padding: '5px 12px', borderRadius: 10, fontSize: 11, fontWeight: 700,
+                cursor: 'pointer', whiteSpace: 'nowrap',
+                border: `1px solid ${stageFilter === s ? STAGE_COLORS[s] + '50' : 'var(--border)'}`,
+                background: stageFilter === s ? STAGE_COLORS[s] + '18' : 'var(--card)',
+                color: stageFilter === s ? STAGE_COLORS[s] : 'var(--text2)'
+              }}>{STAGE_LABELS[s]} ({stageCounts[s]})</div>
+            ))}
+          </div>
+
+          {/* Sort */}
+          <div style={{ padding: '0 16px 8px', display: 'flex', justifyContent: 'flex-end' }}>
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{
+              background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8,
+              padding: '4px 10px', fontSize: 11, color: 'var(--text2)', outline: 'none',
+              fontFamily: 'DM Sans', cursor: 'pointer'
+            }}>
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="value_high">Highest value</option>
+              <option value="value_low">Lowest value</option>
+              <option value="client">By client</option>
+            </select>
+          </div>
+
           <div className="sec">
             {filtered.length === 0 ? (
               <div className="empty-state">
