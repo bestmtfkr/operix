@@ -789,7 +789,7 @@ export default function JobsList() {
 
           <div className="form-field">
             <label className="form-label">Reminder Date</label>
-            <input className="form-input" type="date" value={reminderDate}
+            <input className="form-input" type="date" value={reminderDate} max="2099-12-31"
               onChange={e => setReminderDate(e.target.value)} />
           </div>
 

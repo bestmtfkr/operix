@@ -79,6 +79,8 @@ a { color: inherit; text-decoration: none; }
   box-shadow: 0 0 0 3px rgba(0,212,160,0.08);
 }
 .form-input::placeholder { color: var(--text3); }
+input[type="date"]::-webkit-datetime-edit-year-field { max-width: 4ch; }
+input[type="date"] { max-width: 100%; }
 
 select.form-input { cursor: pointer; }
 select.form-input option { background: var(--card2); }
