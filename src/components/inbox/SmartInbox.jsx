@@ -226,12 +226,20 @@ Only return valid JSON.`
   const [createJobEmail, setCreateJobEmail] = useState(null)
   const [createJobClientId, setCreateJobClientId] = useState('')
   const [createJobNewClient, setCreateJobNewClient] = useState('')
+  const [createJobForm, setCreateJobForm] = useState({ name: '', description: '', site_address: '', priority: 'normal', insurance_claim_number: '' })
 
   function startCreateJobFromEmail(email) {
     const extracted = email.metadata?.extracted_data || {}
     setCreateJobEmail(email)
     setCreateJobNewClient(extracted.client_name || email.from_name || '')
     setCreateJobClientId('')
+    setCreateJobForm({
+      name: email.subject || '',
+      description: email.summary || '',
+      site_address: extracted.address || '',
+      priority: email.priority || 'normal',
+      insurance_claim_number: extracted.claim_number || ''
+    })
     setShowCreateJobModal(true)
   }
 
@@ -251,15 +259,18 @@ Only return valid JSON.`
     }
 
     if (!clientId) { showToast('Please select or enter a client name'); return }
+    if (!createJobForm.name.trim()) { showToast('Please enter a job name'); return }
 
     const { data: jobNum } = await supabase.rpc('generate_job_number', { p_company_id: companyId })
     const { data: job, error } = await supabase.from('jobs').insert({
       company_id: companyId, job_number: jobNum || ('JOB-' + Date.now()),
-      client_id: clientId, name: createJobEmail.subject || 'New Job',
-      description: createJobEmail.summary || '', stage: 'lead',
-      priority: createJobEmail.priority || 'normal',
-      site_address: extracted.address || '',
-      insurance_claim_number: extracted.claim_number || '',
+      client_id: clientId,
+      name: createJobForm.name.trim(),
+      description: createJobForm.description.trim(),
+      stage: 'lead',
+      priority: createJobForm.priority,
+      site_address: createJobForm.site_address.trim(),
+      insurance_claim_number: createJobForm.insurance_claim_number.trim(),
       created_by: profile?.id
     }).select().single()
 
@@ -637,29 +648,71 @@ Only return valid JSON.`
       {/* Create Job from Email Modal */}
       {showCreateJobModal && createJobEmail && (
         <Modal title="Create Job from Email" onClose={() => setShowCreateJobModal(false)}>
+          {/* Email reference */}
           <div style={{ background: 'var(--bg2)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 2 }}>From: {createJobEmail.from_name || createJobEmail.from_address}</div>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>{createJobEmail.subject}</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 2 }}>From: {createJobEmail.from_name || createJobEmail.from_address}</div>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{createJobEmail.subject}</div>
+            {createJobEmail.summary && <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 6, lineHeight: 1.5 }}>{createJobEmail.summary}</div>}
           </div>
 
+          {/* Client selection */}
           <div className="form-field">
-            <label className="form-label">Select Existing Client</label>
+            <label className="form-label">Client *</label>
             <select className="form-input" value={createJobClientId} onChange={e => { setCreateJobClientId(e.target.value); if (e.target.value) setCreateJobNewClient('') }}>
-              <option value="">-- Or create new below --</option>
+              <option value="">-- Select existing or create new --</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
 
           {!createJobClientId && (
             <div className="form-field">
-              <label className="form-label">Or Create New Client</label>
-              <input className="form-input" placeholder="Client name"
+              <label className="form-label">Or New Client Name</label>
+              <input className="form-input" placeholder="e.g. Maple Leaf Properties"
                 value={createJobNewClient} onChange={e => setCreateJobNewClient(e.target.value)} />
             </div>
           )}
 
-          <button className="btn btn-primary btn-full" style={{ marginTop: 8 }} onClick={confirmCreateJobFromEmail}>
-            Create Job
+          {/* Job details — pre-filled by AI, editable */}
+          <div className="form-field">
+            <label className="form-label">Job Name *</label>
+            <input className="form-input" value={createJobForm.name}
+              onChange={e => setCreateJobForm(f => ({ ...f, name: e.target.value }))} />
+          </div>
+
+          <div className="form-field">
+            <label className="form-label">Description / Scope</label>
+            <textarea className="form-input" style={{ minHeight: 120, lineHeight: 1.7 }}
+              value={createJobForm.description}
+              onChange={e => setCreateJobForm(f => ({ ...f, description: e.target.value }))} />
+          </div>
+
+          <div className="form-row">
+            <div className="form-field">
+              <label className="form-label">Site Address</label>
+              <input className="form-input" value={createJobForm.site_address}
+                onChange={e => setCreateJobForm(f => ({ ...f, site_address: e.target.value }))} />
+            </div>
+            <div className="form-field">
+              <label className="form-label">Priority</label>
+              <select className="form-input" value={createJobForm.priority}
+                onChange={e => setCreateJobForm(f => ({ ...f, priority: e.target.value }))}>
+                <option value="emergency">Emergency</option>
+                <option value="urgent">Urgent</option>
+                <option value="normal">Normal</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="form-field">
+            <label className="form-label">Insurance Claim #</label>
+            <input className="form-input" placeholder="Optional"
+              value={createJobForm.insurance_claim_number}
+              onChange={e => setCreateJobForm(f => ({ ...f, insurance_claim_number: e.target.value }))} />
+          </div>
+
+          <button className="btn btn-primary btn-full" style={{ marginTop: 8, padding: 14, fontSize: 14 }} onClick={confirmCreateJobFromEmail}>
+            Create Job & Link Email
           </button>
           <button className="btn btn-secondary btn-full" style={{ marginTop: 8 }} onClick={() => setShowCreateJobModal(false)}>
             Cancel
