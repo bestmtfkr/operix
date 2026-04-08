@@ -57,7 +57,7 @@
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  padding-bottom: 8px;
+  padding-bottom: 60px; /* Extra space so last items aren't hidden behind FAB */
   max-width: 100%;
   width: 100%;
 }

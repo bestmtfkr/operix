@@ -178,7 +178,7 @@ textarea.form-input { resize: none; min-height: 80px; }
 
 /* ─── EMPTY STATE ─────────────────────────────── */
 .empty-state {
-  text-align: center; padding: 60px 20px; color: var(--text3);
+  text-align: center; padding: 40px 20px; color: var(--text3);
 }
 .empty-icon { font-size: 40px; margin-bottom: 16px; }
 .empty-title { font-size: 16px; font-weight: 700; color: var(--text2); margin-bottom: 8px; }
@@ -191,7 +191,6 @@ textarea.form-input { resize: none; min-height: 80px; }
   display: flex; align-items: flex-end; justify-content: center;
   backdrop-filter: blur(6px);
   animation: fadeIn 0.15s ease;
-  overflow: hidden;
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
@@ -200,22 +199,31 @@ textarea.form-input { resize: none; min-height: 80px; }
   background: var(--card);
   border: 1px solid var(--border2);
   border-radius: 20px 20px 0 0;
-  padding: 24px 20px calc(24px + var(--safe-bottom));
   animation: slideUp 0.25s cubic-bezier(0.32, 0.72, 0, 1);
-  max-height: 90vh;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
+  max-height: 88vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
 }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
 .modal-handle {
   width: 36px; height: 4px; border-radius: 4px;
-  background: var(--border2); margin: 0 auto 20px;
+  background: var(--border2); margin: 14px auto 12px;
+  flex-shrink: 0;
 }
 .modal-title {
   font-size: 18px; font-weight: 800;
-  margin-bottom: 18px; letter-spacing: -0.3px;
+  padding: 0 20px 14px;
+  letter-spacing: -0.3px;
+  flex-shrink: 0;
+}
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: 0 20px calc(20px + var(--safe-bottom));
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ─── TOAST ───────────────────────────────────── */

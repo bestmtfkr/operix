@@ -260,17 +260,32 @@ Only return valid JSON.`
     loadJobs()
   }
 
-  async function markRead(email) {
+  const [opening, setOpening] = useState(false)
+
+  async function openEmail(email) {
+    if (opening || showDetail) return // Prevent double-tap
+    setOpening(true)
+
+    // Open detail immediately — don't wait for AI
+    setShowDetail({ ...email })
+
+    // Mark as read in background
     if (email.status === 'unread') {
-      await supabase.from('inbox_emails').update({ status: 'read' }).eq('id', email.id)
+      supabase.from('inbox_emails').update({ status: 'read' }).eq('id', email.id)
       email.status = 'read'
     }
-    // Auto-suggest job match
+
+    // Suggest job match in background (updates the modal after it loads)
     if (!email.metadata?.linked_job_id && !email._suggestion) {
-      const suggestion = await suggestJobMatch(email)
-      email._suggestion = suggestion
+      suggestJobMatch(email).then(suggestion => {
+        if (suggestion) {
+          email._suggestion = suggestion
+          setShowDetail(prev => prev?.id === email.id ? { ...email, _suggestion: suggestion } : prev)
+        }
+      })
     }
-    setShowDetail({ ...email })
+
+    setOpening(false)
   }
 
   async function deleteEmail(id) {
@@ -423,7 +438,7 @@ Only return valid JSON.`
           const linkedJob = isLinked ? jobs.find(j => j.id === isLinked) : null
 
           return (
-            <div key={email.id} className="card" onClick={() => markRead(email)} style={{
+            <div key={email.id} className="card" onClick={() => openEmail(email)} style={{
               borderLeft: email.status === 'unread' ? '3px solid var(--primary)' :
                 isLinked ? '3px solid var(--blue)' : '3px solid transparent',
               position: 'relative', zIndex: 1, cursor: 'pointer'
@@ -472,6 +487,14 @@ Only return valid JSON.`
           </div>
 
           {/* AI Job Suggestion */}
+          {/* AI finding match indicator */}
+          {!showDetail.metadata?.linked_job_id && !showDetail._suggestion && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0', color: 'var(--text3)', fontSize: 12 }}>
+              <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
+              Finding matching job...
+            </div>
+          )}
+
           {showDetail._suggestion && showDetail._suggestion.job_id && (
             <div style={{ background: 'rgba(33,150,243,0.06)', border: '1px solid rgba(33,150,243,0.2)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
               <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--blue)', marginBottom: 6 }}>🤖 AI SUGGESTS LINKING TO:</div>
