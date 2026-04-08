@@ -233,9 +233,17 @@ Only return valid JSON.`
     setCreateJobEmail(email)
     setCreateJobNewClient(extracted.client_name || email.from_name || '')
     setCreateJobClientId('')
+    // Build description from AI summary + email body
+    let desc = ''
+    if (email.summary) desc += email.summary
+    if (email.body && email.body !== email.summary) {
+      if (desc) desc += '\n\n--- Original Email ---\n\n'
+      desc += email.body
+    }
+
     setCreateJobForm({
       name: email.subject || '',
-      description: email.summary || '',
+      description: desc || email.raw_text || '',
       site_address: extracted.address || '',
       priority: email.priority || 'normal',
       insurance_claim_number: extracted.claim_number || ''
