@@ -111,6 +111,7 @@ export default function JobDetail({ jobId, onBack }) {
       scheduled_end: job.scheduled_end ? job.scheduled_end.slice(0, 16) : '',
       insurance_claim_number: job.insurance_claim_number || '',
       insurance_company: job.insurance_company || '',
+      unit_numbers: job.unit_numbers || '',
       notes: job.notes || ''
     })
     setShowEditModal(true)
@@ -332,6 +333,12 @@ export default function JobDetail({ jobId, onBack }) {
         {/* OVERVIEW */}
         {activeSection === 'overview' && (
           <div>
+            {job.unit_numbers && (
+              <div className="card" style={{ cursor: 'default', borderLeft: '3px solid var(--blue)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Units</div>
+                <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 600 }}>{job.unit_numbers}</div>
+              </div>
+            )}
             {job.description && (
               <div className="card" style={{ cursor: 'default' }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Scope</div>
@@ -599,6 +606,10 @@ export default function JobDetail({ jobId, onBack }) {
               <label className="form-label">End</label>
               <input className="form-input" type="datetime-local" value={editForm.scheduled_end} onChange={e => updateEdit('scheduled_end', e.target.value)} />
             </div>
+          </div>
+          <div className="form-field">
+            <label className="form-label">Unit Numbers</label>
+            <input className="form-input" placeholder="e.g. 820, 416, 1003" value={editForm.unit_numbers || ''} onChange={e => updateEdit('unit_numbers', e.target.value)} />
           </div>
           <div className="form-row">
             <div className="form-field">

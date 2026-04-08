@@ -76,7 +76,8 @@ Based on the following description (could be a phone call summary, email, or not
   "site_city": "city name — try to infer from context if not explicitly stated",
   "site_province_state": "province or state code (e.g. QC, ON, BC) — infer from context like area codes, street names, language used",
   "insurance_company": "if mentioned, otherwise null",
-  "insurance_claim_number": "if mentioned, otherwise null"
+  "insurance_claim_number": "if mentioned, otherwise null",
+  "unit_numbers": "comma-separated list of unit/apartment numbers if mentioned (e.g. '820, 416, 1003')"
 }
 IMPORTANT: Always try to fill site_city and site_province_state even if you have to infer from clues in the text (French text = likely QC, 514/438 area code = Montreal QC, 416/647 = Toronto ON, etc).
 Put unit numbers, detailed breakdowns, and options in the "notes" field, not in the description.

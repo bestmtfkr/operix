@@ -31,7 +31,7 @@ export default function JobsList() {
     name: '', client_id: '', description: '', stage: 'lead', priority: 'normal',
     job_type: '', estimated_value: '', site_address: '', site_city: '',
     site_province_state: '', scheduled_start: '', scheduled_end: '',
-    insurance_claim_number: '', insurance_company: '', notes: '',
+    insurance_claim_number: '', insurance_company: '', unit_numbers: '', notes: '',
     is_recurring: false, recurrence_frequency: 'weekly', recurrence_interval: 1
   })
 
@@ -102,7 +102,7 @@ export default function JobsList() {
       name: '', client_id: '', description: '', stage: 'lead', priority: 'normal',
       job_type: '', estimated_value: '', site_address: '', site_city: '',
       site_province_state: '', scheduled_start: '', scheduled_end: '',
-      insurance_claim_number: '', insurance_company: '', notes: '',
+      insurance_claim_number: '', insurance_company: '', unit_numbers: '', notes: '',
     is_recurring: false, recurrence_frequency: 'weekly', recurrence_interval: 1
     })
     setShowModal(true)
@@ -125,6 +125,7 @@ export default function JobsList() {
       scheduled_end: job.scheduled_end ? job.scheduled_end.slice(0, 16) : '',
       insurance_claim_number: job.insurance_claim_number || '',
       insurance_company: job.insurance_company || '',
+      unit_numbers: job.unit_numbers || '',
       notes: job.notes || '',
       is_recurring: job.is_recurring || false,
       recurrence_frequency: job.recurrence_rule?.frequency || 'weekly',
@@ -550,6 +551,7 @@ export default function JobsList() {
                 if (data.site_province_state) updateForm('site_province_state', data.site_province_state)
                 if (data.insurance_company) updateForm('insurance_company', data.insurance_company)
                 if (data.insurance_claim_number) updateForm('insurance_claim_number', data.insurance_claim_number)
+                if (data.unit_numbers) updateForm('unit_numbers', data.unit_numbers)
                 // Try to match client by name
                 if (data.client_name) {
                   const match = clients.find(c => c.name.toLowerCase().includes(data.client_name.toLowerCase()))
@@ -657,6 +659,13 @@ export default function JobsList() {
               <input className="form-input" type="datetime-local"
                 value={form.scheduled_end} onChange={e => updateForm('scheduled_end', e.target.value)} />
             </div>
+          </div>
+
+          <div className="form-field">
+            <label className="form-label">Unit Numbers</label>
+            <input className="form-input" placeholder="e.g. 820, 416, 1003, 310, 813"
+              value={form.unit_numbers} onChange={e => updateForm('unit_numbers', e.target.value)} />
+            <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>Comma-separated unit/apartment numbers</div>
           </div>
 
           <div className="form-row">
