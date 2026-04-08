@@ -425,7 +425,8 @@ Only return valid JSON.`
           return (
             <div key={email.id} className="card" onClick={() => markRead(email)} style={{
               borderLeft: email.status === 'unread' ? '3px solid var(--primary)' :
-                isLinked ? '3px solid var(--blue)' : '3px solid transparent'
+                isLinked ? '3px solid var(--blue)' : '3px solid transparent',
+              position: 'relative', zIndex: 1, cursor: 'pointer'
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <div style={{ fontSize: 13, fontWeight: email.status === 'unread' ? 800 : 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

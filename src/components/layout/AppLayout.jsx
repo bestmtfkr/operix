@@ -82,14 +82,14 @@ export default function AppLayout({ activeTab, onTabChange, children }) {
       {/* AI Help Chat */}
       {showHelp && <AIHelpChat onClose={() => setShowHelp(false)} />}
 
-      {/* Help FAB */}
+      {/* Help FAB — small, bottom left to not block content */}
       {!showHelp && (
         <button onClick={() => setShowHelp(true)} style={{
-          position: 'fixed', bottom: 'calc(56px + var(--safe-bottom) + 70px)', right: 16, width: 42, height: 42,
-          borderRadius: 14, background: 'linear-gradient(135deg, var(--primary), var(--primary2))',
-          border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 20, cursor: 'pointer', zIndex: 50,
-          boxShadow: '0 6px 20px rgba(0,212,160,0.3)'
+          position: 'fixed', bottom: 'calc(56px + var(--safe-bottom) + 12px)', left: 16, width: 36, height: 36,
+          borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 16, cursor: 'pointer', zIndex: 40,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
         }}>🤖</button>
       )}
 
