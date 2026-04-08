@@ -251,18 +251,18 @@ Only return valid JSON.`
 
     setCreateJobForm({
       name: email.subject || '',
-      description: desc || email.raw_text || '',
+      description: extracted.scope_details ? (clean(extracted.scope_details) + (email.summary ? '\n\n' + email.summary : '')) : (desc || email.raw_text || ''),
       stage: 'lead',
       priority: email.priority || 'normal',
-      job_type: '',
+      job_type: clean(extracted.job_type) || '',
       estimated_value: clean(extracted.amount),
       site_address: clean(extracted.address),
-      site_city: '',
-      site_province_state: '',
-      unit_numbers: '',
+      site_city: clean(extracted.city),
+      site_province_state: clean(extracted.province_state),
+      unit_numbers: clean(extracted.unit_numbers),
       scheduled_start: '',
       scheduled_end: '',
-      insurance_company: '',
+      insurance_company: clean(extracted.insurance_company),
       insurance_claim_number: clean(extracted.claim_number),
       notes: ''
     })

@@ -38,27 +38,41 @@ export async function askAIJSON(prompt, system, maxTokens) {
 
 // Analyze an email and extract structured data
 export async function analyzeEmail(emailText) {
-  return askAIJSON(emailText, `You are an AI assistant for a facility management / restoration company.
-Analyze the following email and return a JSON object with:
+  return askAIJSON(emailText, `You are an expert AI assistant for a facility management / restoration company in Canada.
+Your job is to extract EVERY piece of useful information from emails. Be thorough — miss nothing.
+
+Analyze the email and return JSON:
 {
-  "from_name": "sender name",
+  "from_name": "sender's full name",
   "from_email": "sender email if visible",
-  "subject": "email subject or summary",
+  "subject": "email subject line or a clear summary if no subject",
   "category": "insurance" | "client" | "supplier" | "pm" | "internal" | "urgent",
   "priority": "urgent" | "high" | "normal" | "low",
-  "summary": "2-3 sentence summary of what this email is about and what action is needed",
+  "summary": "Detailed 3-5 sentence summary covering: what the email is about, what specific action is needed, any deadlines mentioned, any amounts/costs discussed, and the current status of the situation. Be specific — include numbers, dates, names, and addresses.",
   "suggested_action": "create_job" | "update_job" | "create_invoice" | "follow_up" | "none",
   "extracted_data": {
-    "client_name": "exact name or null if not mentioned",
-    "address": "exact address or null if not mentioned",
-    "claim_number": "exact number or null if not mentioned",
-    "amount": "number or null if not mentioned",
-    "deadline": "date or null if not mentioned"
+    "client_name": "the company or person requesting work, or the property owner/manager — null if not found",
+    "address": "full street address of the property/job site — null if not found",
+    "city": "city name — null if not found",
+    "province_state": "province or state code like QC, ON, BC — null if not found",
+    "claim_number": "insurance claim or file number — null if not found",
+    "insurance_company": "name of insurance company — null if not found",
+    "amount": "any dollar amount discussed (estimate, quote, cost) as a number — null if not found",
+    "unit_numbers": "apartment/unit numbers if this is a multi-unit property — null if not found",
+    "job_type": "water_damage | fire_damage | mold_remediation | storm_damage | hvac | plumbing | electrical | cleaning | maintenance | inspection | renovation | general — pick the best match",
+    "deadline": "any deadline or due date mentioned — null if not found",
+    "contact_phone": "phone number if mentioned — null if not found",
+    "scope_details": "detailed list of specific work items, materials, rooms, areas mentioned in the email. Include everything — unit numbers, room types, specific repairs needed, materials discussed, measurements. This should be comprehensive."
   },
-  "draft_reply": "professional 3-4 sentence reply"
+  "draft_reply": "professional 3-5 sentence reply acknowledging the email and confirming next steps. Match the language of the original email (English or French)."
 }
-IMPORTANT: For extracted_data fields, use null if the information is not explicitly stated in the email. Do NOT use placeholder text like "not mentioned", "not specified", "[unknown]", etc. Either the exact value or null.
-Only return valid JSON, no other text.`)
+
+RULES:
+- For extracted_data fields, use null if the information is NOT explicitly stated. Never use placeholder text.
+- The summary should be DETAILED — a busy contractor should understand the full situation from reading just the summary.
+- scope_details should capture every specific work item, material, and area mentioned.
+- If the email is in French, keep extracted data in the original language but summary can be bilingual.
+Only return valid JSON, no other text.`, 2048)
 }
 
 // Generate job details from a description
