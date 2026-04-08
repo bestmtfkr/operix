@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import GlobalSearch from '../shared/GlobalSearch'
+import NotificationCenter from '../shared/NotificationCenter'
 import { canAccessModule } from '../../lib/permissions'
 import './AppLayout.css'
 
@@ -15,6 +16,7 @@ const TABS = [
 export default function AppLayout({ activeTab, onTabChange, children }) {
   const { profile, signOut } = useAuth()
   const [showSearch, setShowSearch] = useState(false)
+  const [showNotifications, setShowNotifications] = useState(false)
   const name = profile?.full_name || 'User'
   const initial = name.charAt(0).toUpperCase()
 
@@ -31,6 +33,14 @@ export default function AppLayout({ activeTab, onTabChange, children }) {
         />
       )}
 
+      {/* Notifications */}
+      {showNotifications && (
+        <NotificationCenter
+          onClose={() => setShowNotifications(false)}
+          onNavigate={(tab) => { setShowNotifications(false); onTabChange(tab) }}
+        />
+      )}
+
       {/* Topbar */}
       <div className="topbar">
         <div className="topbar-left">
@@ -40,6 +50,9 @@ export default function AppLayout({ activeTab, onTabChange, children }) {
         <div className="topbar-right">
           <div className="icon-btn" onClick={() => setShowSearch(true)}>
             🔍
+          </div>
+          <div className="icon-btn" onClick={() => setShowNotifications(true)}>
+            🔔
           </div>
           <div className="user-btn" onClick={() => onTabChange('profile')}>
             {initial}
