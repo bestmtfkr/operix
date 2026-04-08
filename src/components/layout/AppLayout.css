@@ -1,6 +1,7 @@
 .app-layout {
   position: fixed; inset: 0;
   display: flex; flex-direction: column;
+  overflow: hidden;
 }
 
 /* ─── TOPBAR ─────────────────────────────────── */

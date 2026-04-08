@@ -25,16 +25,47 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+html {
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
+
 body {
   background: var(--bg);
   color: var(--text);
   font-family: 'DM Sans', sans-serif;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+  position: relative;
+  width: 100%;
 }
 
 input, select, textarea, button {
   font-family: 'DM Sans', sans-serif;
+}
+
+/* Prevent pull-to-refresh and bounce effects on mobile */
+html, body { touch-action: pan-y; }
+.main-content { touch-action: pan-y; }
+.kanban { touch-action: pan-x pan-y; }
+
+/* Smooth transitions */
+.card, .btn, .tab, .icon-btn, .user-btn {
+  will-change: transform;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+}
+
+/* Prevent text selection on UI elements */
+.tab, .btn, .badge, .status-pill, .fab, .icon-btn, .user-btn {
+  user-select: none; -webkit-user-select: none;
+}
+
+/* Fix iOS input zoom */
+@media (max-width: 768px) {
+  input, select, textarea { font-size: 16px !important; }
 }
 
 a { color: inherit; text-decoration: none; }
