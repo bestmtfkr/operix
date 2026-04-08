@@ -7,7 +7,7 @@
 
 /* ─── TOPBAR ─────────────────────────────────── */
 .topbar {
-  padding: 14px 16px 12px;
+  padding: calc(env(safe-area-inset-top, 44px) + 8px) 16px 12px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; justify-content: space-between;
