@@ -140,6 +140,77 @@ export default function JobDetail({ jobId, onBack }) {
 
   function updateEdit(f, v) { setEditForm(prev => ({ ...prev, [f]: v })) }
 
+  async function generateInvoiceFromJob() {
+    if (!job || timeEntries.length === 0) return
+    if (!confirm(`Generate invoice from ${timeEntries.length} time entries ($${totalLabor.toFixed(2)})?`)) return
+
+    // Get company settings for tax
+    const { data: comp } = await supabase.from('companies').select('settings').eq('id', companyId).single()
+    const settings = comp?.settings || {}
+    const rate1 = settings.tax_rate_1 || 0
+    const rate2 = settings.tax_rate_2 || 0
+    const dueDate = new Date(Date.now() + (settings.default_payment_terms_days || 30) * 86400000).toISOString().split('T')[0]
+
+    // Generate invoice number
+    const { data: invNum } = await supabase.rpc('generate_invoice_number', { p_company_id: companyId })
+
+    // Group time entries by worker
+    const byWorker = {}
+    timeEntries.forEach(e => {
+      const name = e.workers ? `${e.workers.first_name} ${e.workers.last_name}` : 'Labor'
+      if (!byWorker[name]) byWorker[name] = { hours: 0, rate: 0 }
+      byWorker[name].hours += parseFloat(e.total_hours || 0)
+      byWorker[name].rate = parseFloat(e.hourly_rate_at_time || 0)
+    })
+
+    // Create line items from grouped entries
+    const lines = Object.entries(byWorker).map(([name, { hours, rate }]) => ({
+      line_type: 'service',
+      description: `Labor — ${name} (${hours.toFixed(1)} hrs @ $${rate.toFixed(2)}/hr)`,
+      quantity: hours,
+      unit: 'hour',
+      unit_price: rate,
+      amount: hours * rate,
+      taxable: true
+    }))
+
+    const subtotal = lines.reduce((s, l) => s + l.amount, 0)
+    const tax1 = subtotal * rate1
+    const tax2 = rate2 ? subtotal * rate2 : 0
+    const total = subtotal + tax1 + tax2
+
+    // Create invoice
+    const { data: inv, error } = await supabase.from('invoices').insert({
+      company_id: companyId,
+      client_id: job.client_id,
+      job_id: jobId,
+      invoice_number: invNum || ('INV-' + Date.now()),
+      status: 'draft',
+      issue_date: new Date().toISOString().split('T')[0],
+      due_date: dueDate,
+      currency: settings.currency || 'CAD',
+      subtotal, total, amount_due: total,
+      tax1_label: settings.tax_label_1, tax1_rate: rate1, tax1_amount: tax1,
+      tax2_label: settings.tax_label_2, tax2_rate: rate2, tax2_amount: tax2
+    }).select().single()
+
+    if (error || !inv) { showToast('Error creating invoice'); console.error(error); return }
+
+    // Create line items
+    await supabase.from('invoice_lines').insert(
+      lines.map((l, i) => ({ ...l, invoice_id: inv.id, company_id: companyId, sort_order: i }))
+    )
+
+    // Log activity
+    await supabase.from('job_activity').insert({
+      company_id: companyId, job_id: jobId, author_id: profile?.id,
+      type: 'note', content: `Invoice ${inv.invoice_number} generated — $${total.toFixed(2)}`
+    })
+
+    showToast(`Invoice ${inv.invoice_number} created — $${total.toFixed(2)}`)
+    loadAll()
+  }
+
   async function toggleTask(task) {
     const newStatus = task.status === 'done' ? 'todo' : 'done'
     await supabase.from('tasks').update({
@@ -379,9 +450,16 @@ export default function JobDetail({ jobId, onBack }) {
         {/* BILLING */}
         {activeSection === 'billing' && (
           <div>
-            {invoices.length === 0 ? (
-              <div style={{ color: 'var(--text3)', fontSize: 13, padding: 16, textAlign: 'center' }}>No invoices for this job</div>
-            ) : invoices.map(inv => (
+            {/* Generate Invoice from Time Entries */}
+            {timeEntries.length > 0 && (
+              <button className="btn btn-primary btn-full" style={{ marginBottom: 12 }}
+                onClick={generateInvoiceFromJob}>
+                💰 Generate Invoice from Time Entries ({totalHours.toFixed(1)}h · ${totalLabor.toFixed(2)})
+              </button>
+            )}
+            {invoices.length === 0 && timeEntries.length === 0 ? (
+              <div style={{ color: 'var(--text3)', fontSize: 13, padding: 16, textAlign: 'center' }}>No invoices or time entries for this job</div>
+            ) : invoices.length === 0 ? null : invoices.map(inv => (
               <div key={inv.id} className="card" style={{ cursor: 'default' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
