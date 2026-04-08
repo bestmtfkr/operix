@@ -137,8 +137,20 @@ function ProfileScreen() {
 }
 
 import ErrorBoundary from './components/shared/ErrorBoundary'
+import CustomerPortal from './components/portal/CustomerPortal'
 
 export default function App() {
+  // Check if this is a portal URL
+  const path = window.location.pathname
+  const portalMatch = path.match(/^\/portal\/(.+)/)
+  if (portalMatch) {
+    return (
+      <ErrorBoundary>
+        <CustomerPortal token={portalMatch[1]} />
+      </ErrorBoundary>
+    )
+  }
+
   return (
     <ErrorBoundary>
       <AuthProvider>

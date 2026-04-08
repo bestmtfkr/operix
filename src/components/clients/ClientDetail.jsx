@@ -60,6 +60,17 @@ export default function ClientDetail({ clientId, onBack, onOpenJob }) {
 
   function updateEdit(f, v) { setEditForm(prev => ({ ...prev, [f]: v })) }
 
+  async function generatePortalLink() {
+    let token = client.portal_token
+    if (!token) {
+      token = crypto.randomUUID().replace(/-/g, '').slice(0, 20)
+      await supabase.from('clients').update({ portal_token: token, portal_enabled: true }).eq('id', clientId)
+      client.portal_token = token
+    }
+    const link = `${window.location.origin}/portal/${token}`
+    navigator.clipboard.writeText(link).then(() => showToast('Portal link copied!'))
+  }
+
   if (loading) return <div className="loading-center"><div className="spinner" /></div>
   if (!client) return <div className="empty-state"><div className="empty-title">Client not found</div></div>
 
@@ -136,6 +147,18 @@ export default function ClientDetail({ clientId, onBack, onOpenJob }) {
           )}
         </div>
       )}
+
+      {/* Portal Link */}
+      <div style={{ padding: '0 16px 8px' }}>
+        <button onClick={() => generatePortalLink()} style={{
+          width: '100%', padding: 12, borderRadius: 12,
+          background: 'rgba(0,212,160,0.06)', border: '1px solid rgba(0,212,160,0.15)',
+          cursor: 'pointer', fontSize: 12, fontWeight: 700, color: 'var(--primary)',
+          fontFamily: 'DM Sans', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+        }}>
+          🔗 {client.portal_token ? 'Copy Portal Link' : 'Generate Client Portal Link'}
+        </button>
+      </div>
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 6, padding: '4px 16px', overflowX: 'auto', scrollbarWidth: 'none' }}>
