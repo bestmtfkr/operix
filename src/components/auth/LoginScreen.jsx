@@ -88,6 +88,20 @@ export default function LoginScreen() {
             (mode === 'signup' ? 'Create Account' : 'Sign In →')}
         </button>
 
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, margin: '18px 0',
+          color: 'var(--text3)', fontSize: 11
+        }}>
+          <div style={{ flex: 1, height: 1, background: 'var(--border2)' }} />
+          <span>OR</span>
+          <div style={{ flex: 1, height: 1, background: 'var(--border2)' }} />
+        </div>
+
+        <button type="button" className="btn btn-secondary btn-full"
+          onClick={signInWithGoogle} style={{ fontSize: 13 }}>
+          Sign in with Google
+        </button>
+
         <div style={{ textAlign: 'center', marginTop: 16, fontSize: 13, color: 'var(--text2)' }}>
           {mode === 'login' ? (
             <>Don't have an account? <span style={{ color: 'var(--primary)', cursor: 'pointer', fontWeight: 700 }}
