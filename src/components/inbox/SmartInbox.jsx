@@ -288,6 +288,18 @@ Only return valid JSON.`
     setOpening(false)
   }
 
+  async function unlinkEmail(id) {
+    const email = emails.find(e => e.id === id)
+    const meta = { ...(email?.metadata || {}) }
+    delete meta.linked_job_id
+    await supabase.from('inbox_emails').update({
+      status: 'read', actioned_at: null, metadata: meta
+    }).eq('id', id)
+    showToast('Email unlinked')
+    setShowDetail(null)
+    loadEmails()
+  }
+
   async function deleteEmail(id) {
     if (!confirm('Delete?')) return
     await supabase.from('inbox_emails').delete().eq('id', id)
@@ -503,10 +515,15 @@ Only return valid JSON.`
             return lj ? (
               <div style={{ background: 'rgba(33,150,243,0.06)', border: '1px solid rgba(33,150,243,0.15)', borderRadius: 14, padding: '12px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 18 }}>🔗</span>
-                <div>
+                <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--blue)', letterSpacing: 0.5 }}>LINKED TO</div>
                   <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>{lj.job_number} — {lj.name}</div>
                 </div>
+                <button onClick={() => unlinkEmail(showDetail.id)} style={{
+                  background: 'none', border: '1px solid rgba(255,59,92,0.3)', borderRadius: 8,
+                  padding: '6px 10px', fontSize: 11, fontWeight: 700, color: 'var(--red)',
+                  cursor: 'pointer', fontFamily: 'DM Sans'
+                }}>Unlink</button>
               </div>
             ) : null
           })()}
