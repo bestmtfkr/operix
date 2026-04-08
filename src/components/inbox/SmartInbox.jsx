@@ -244,9 +244,19 @@ Only return valid JSON.`
     setCreateJobForm({
       name: email.subject || '',
       description: desc || email.raw_text || '',
-      site_address: extracted.address || '',
+      stage: 'lead',
       priority: email.priority || 'normal',
-      insurance_claim_number: extracted.claim_number || ''
+      job_type: '',
+      estimated_value: extracted.amount || '',
+      site_address: extracted.address || '',
+      site_city: '',
+      site_province_state: '',
+      unit_numbers: '',
+      scheduled_start: '',
+      scheduled_end: '',
+      insurance_company: '',
+      insurance_claim_number: extracted.claim_number || '',
+      notes: ''
     })
     setShowCreateJobModal(true)
   }
@@ -275,10 +285,19 @@ Only return valid JSON.`
       client_id: clientId,
       name: createJobForm.name.trim(),
       description: createJobForm.description.trim(),
-      stage: 'lead',
-      priority: createJobForm.priority,
-      site_address: createJobForm.site_address.trim(),
-      insurance_claim_number: createJobForm.insurance_claim_number.trim(),
+      stage: createJobForm.stage || 'lead',
+      priority: createJobForm.priority || 'normal',
+      job_type: createJobForm.job_type || null,
+      estimated_value: createJobForm.estimated_value ? parseFloat(createJobForm.estimated_value) : null,
+      site_address: createJobForm.site_address?.trim() || null,
+      site_city: createJobForm.site_city?.trim() || null,
+      site_province_state: createJobForm.site_province_state?.trim() || null,
+      unit_numbers: createJobForm.unit_numbers?.trim() || null,
+      scheduled_start: createJobForm.scheduled_start || null,
+      scheduled_end: createJobForm.scheduled_end || null,
+      insurance_company: createJobForm.insurance_company?.trim() || null,
+      insurance_claim_number: createJobForm.insurance_claim_number?.trim() || null,
+      notes: createJobForm.notes?.trim() || null,
       created_by: profile?.id
     }).select().single()
 
@@ -653,17 +672,16 @@ Only return valid JSON.`
         </Modal>
       )}
 
-      {/* Create Job from Email Modal */}
+      {/* Create Job from Email Modal — Full form same as Jobs tab */}
       {showCreateJobModal && createJobEmail && (
         <Modal title="Create Job from Email" onClose={() => setShowCreateJobModal(false)}>
           {/* Email reference */}
-          <div style={{ background: 'var(--bg2)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+          <div style={{ background: 'rgba(0,212,160,0.04)', border: '1px solid rgba(0,212,160,0.12)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
             <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 2 }}>From: {createJobEmail.from_name || createJobEmail.from_address}</div>
             <div style={{ fontSize: 13, fontWeight: 700 }}>{createJobEmail.subject}</div>
-            {createJobEmail.summary && <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 6, lineHeight: 1.5 }}>{createJobEmail.summary}</div>}
           </div>
 
-          {/* Client selection */}
+          {/* Client */}
           <div className="form-field">
             <label className="form-label">Client *</label>
             <select className="form-input" value={createJobClientId} onChange={e => { setCreateJobClientId(e.target.value); if (e.target.value) setCreateJobNewClient('') }}>
@@ -671,7 +689,6 @@ Only return valid JSON.`
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-
           {!createJobClientId && (
             <div className="form-field">
               <label className="form-label">Or New Client Name</label>
@@ -680,25 +697,23 @@ Only return valid JSON.`
             </div>
           )}
 
-          {/* Job details — pre-filled by AI, editable */}
+          {/* Job Name */}
           <div className="form-field">
             <label className="form-label">Job Name *</label>
             <input className="form-input" value={createJobForm.name}
               onChange={e => setCreateJobForm(f => ({ ...f, name: e.target.value }))} />
           </div>
 
-          <div className="form-field">
-            <label className="form-label">Description / Scope</label>
-            <textarea className="form-input" style={{ minHeight: 120, lineHeight: 1.7 }}
-              value={createJobForm.description}
-              onChange={e => setCreateJobForm(f => ({ ...f, description: e.target.value }))} />
-          </div>
-
+          {/* Stage + Priority */}
           <div className="form-row">
             <div className="form-field">
-              <label className="form-label">Site Address</label>
-              <input className="form-input" value={createJobForm.site_address}
-                onChange={e => setCreateJobForm(f => ({ ...f, site_address: e.target.value }))} />
+              <label className="form-label">Stage</label>
+              <select className="form-input" value={createJobForm.stage || 'lead'}
+                onChange={e => setCreateJobForm(f => ({ ...f, stage: e.target.value }))}>
+                <option value="lead">Lead</option>
+                <option value="quoted">Quoted</option>
+                <option value="active">Active</option>
+              </select>
             </div>
             <div className="form-field">
               <label className="form-label">Priority</label>
@@ -712,11 +727,106 @@ Only return valid JSON.`
             </div>
           </div>
 
+          {/* Job Type + Value */}
+          <div className="form-row">
+            <div className="form-field">
+              <label className="form-label">Job Type</label>
+              <select className="form-input" value={createJobForm.job_type || ''}
+                onChange={e => setCreateJobForm(f => ({ ...f, job_type: e.target.value }))}>
+                <option value="">Select...</option>
+                <option value="water_damage">Water Damage</option>
+                <option value="fire_damage">Fire Damage</option>
+                <option value="mold_remediation">Mold Remediation</option>
+                <option value="storm_damage">Storm Damage</option>
+                <option value="hvac">HVAC</option>
+                <option value="plumbing">Plumbing</option>
+                <option value="electrical">Electrical</option>
+                <option value="cleaning">Cleaning</option>
+                <option value="maintenance">Maintenance</option>
+                <option value="inspection">Inspection</option>
+                <option value="renovation">Renovation</option>
+                <option value="general">General</option>
+              </select>
+            </div>
+            <div className="form-field">
+              <label className="form-label">Estimated Value ($)</label>
+              <input className="form-input" type="number" placeholder="0.00"
+                value={createJobForm.estimated_value || ''}
+                onChange={e => setCreateJobForm(f => ({ ...f, estimated_value: e.target.value }))} />
+            </div>
+          </div>
+
+          {/* Site Address */}
           <div className="form-field">
-            <label className="form-label">Insurance Claim #</label>
-            <input className="form-input" placeholder="Optional"
-              value={createJobForm.insurance_claim_number}
-              onChange={e => setCreateJobForm(f => ({ ...f, insurance_claim_number: e.target.value }))} />
+            <label className="form-label">Site Address</label>
+            <input className="form-input" value={createJobForm.site_address}
+              onChange={e => setCreateJobForm(f => ({ ...f, site_address: e.target.value }))} />
+          </div>
+          <div className="form-row">
+            <div className="form-field">
+              <label className="form-label">City</label>
+              <input className="form-input" value={createJobForm.site_city || ''}
+                onChange={e => setCreateJobForm(f => ({ ...f, site_city: e.target.value }))} />
+            </div>
+            <div className="form-field">
+              <label className="form-label">Province/State</label>
+              <input className="form-input" value={createJobForm.site_province_state || ''}
+                onChange={e => setCreateJobForm(f => ({ ...f, site_province_state: e.target.value }))} />
+            </div>
+          </div>
+
+          {/* Unit Numbers */}
+          <div className="form-field">
+            <label className="form-label">Unit Numbers</label>
+            <input className="form-input" placeholder="e.g. 820, 416, 1003"
+              value={createJobForm.unit_numbers || ''}
+              onChange={e => setCreateJobForm(f => ({ ...f, unit_numbers: e.target.value }))} />
+          </div>
+
+          {/* Schedule */}
+          <div className="form-row">
+            <div className="form-field">
+              <label className="form-label">Scheduled Start</label>
+              <input className="form-input" type="datetime-local" value={createJobForm.scheduled_start || ''}
+                onChange={e => setCreateJobForm(f => ({ ...f, scheduled_start: e.target.value }))} />
+            </div>
+            <div className="form-field">
+              <label className="form-label">Scheduled End</label>
+              <input className="form-input" type="datetime-local" value={createJobForm.scheduled_end || ''}
+                onChange={e => setCreateJobForm(f => ({ ...f, scheduled_end: e.target.value }))} />
+            </div>
+          </div>
+
+          {/* Insurance */}
+          <div className="form-row">
+            <div className="form-field">
+              <label className="form-label">Insurance Company</label>
+              <input className="form-input" placeholder="Optional"
+                value={createJobForm.insurance_company || ''}
+                onChange={e => setCreateJobForm(f => ({ ...f, insurance_company: e.target.value }))} />
+            </div>
+            <div className="form-field">
+              <label className="form-label">Claim #</label>
+              <input className="form-input" placeholder="Optional"
+                value={createJobForm.insurance_claim_number}
+                onChange={e => setCreateJobForm(f => ({ ...f, insurance_claim_number: e.target.value }))} />
+            </div>
+          </div>
+
+          {/* Description */}
+          <div className="form-field">
+            <label className="form-label">Description / Scope</label>
+            <textarea className="form-input" style={{ minHeight: 140, lineHeight: 1.7 }}
+              value={createJobForm.description}
+              onChange={e => setCreateJobForm(f => ({ ...f, description: e.target.value }))} />
+          </div>
+
+          {/* Notes */}
+          <div className="form-field">
+            <label className="form-label">Notes</label>
+            <textarea className="form-input" placeholder="Internal notes..."
+              value={createJobForm.notes || ''}
+              onChange={e => setCreateJobForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
 
           <button className="btn btn-primary btn-full" style={{ marginTop: 8, padding: 14, fontSize: 14 }} onClick={confirmCreateJobFromEmail}>
