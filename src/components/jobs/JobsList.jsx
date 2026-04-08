@@ -23,6 +23,7 @@ export default function JobsList() {
   const [editing, setEditing] = useState(null)
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState('all')
+  const [clientFilter, setClientFilter] = useState('all')
   const [sortBy, setSortBy] = useState('newest')
   const [detailJobId, setDetailJobId] = useState(null)
   const [showAI, setShowAI] = useState(false)
@@ -267,6 +268,7 @@ export default function JobsList() {
   // Filter and sort
   let filtered = jobs
   if (stageFilter !== 'all') filtered = filtered.filter(j => j.stage === stageFilter)
+  if (clientFilter !== 'all') filtered = filtered.filter(j => j.client_id === clientFilter)
   if (search.trim()) {
     const q = search.toLowerCase()
     filtered = filtered.filter(j =>
@@ -346,8 +348,16 @@ export default function JobsList() {
             ))}
           </div>
 
-          {/* Sort */}
-          <div style={{ padding: '0 16px 8px', display: 'flex', justifyContent: 'flex-end' }}>
+          {/* Client filter + Sort */}
+          <div style={{ padding: '0 16px 8px', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={{
+              background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8,
+              padding: '4px 10px', fontSize: 11, color: clientFilter !== 'all' ? 'var(--primary)' : 'var(--text2)',
+              outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer', flex: 1, minWidth: 0
+            }}>
+              <option value="all">All Clients</option>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
             <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{
               background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8,
               padding: '4px 10px', fontSize: 11, color: 'var(--text2)', outline: 'none',

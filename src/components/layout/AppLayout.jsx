@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import GlobalSearch from '../shared/GlobalSearch'
 import NotificationCenter from '../shared/NotificationCenter'
+import AIHelpChat from '../shared/AIHelpChat'
 import { canAccessModule } from '../../lib/permissions'
 import './AppLayout.css'
 
@@ -17,6 +18,7 @@ export default function AppLayout({ activeTab, onTabChange, children }) {
   const { profile, signOut } = useAuth()
   const [showSearch, setShowSearch] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
   const name = profile?.full_name || 'User'
   const initial = name.charAt(0).toUpperCase()
 
@@ -73,6 +75,20 @@ export default function AppLayout({ activeTab, onTabChange, children }) {
       <div className="main-content">
         {children}
       </div>
+
+      {/* AI Help Chat */}
+      {showHelp && <AIHelpChat onClose={() => setShowHelp(false)} />}
+
+      {/* Help FAB */}
+      {!showHelp && (
+        <button onClick={() => setShowHelp(true)} style={{
+          position: 'fixed', bottom: 80, right: 16, width: 44, height: 44,
+          borderRadius: 14, background: 'linear-gradient(135deg, var(--primary), var(--primary2))',
+          border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 20, cursor: 'pointer', zIndex: 50,
+          boxShadow: '0 6px 20px rgba(0,212,160,0.3)'
+        }}>🤖</button>
+      )}
 
       {/* Bottom tabs */}
       <div className="tabs">
