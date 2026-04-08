@@ -200,6 +200,52 @@ export default function JobsList() {
     loadJobs()
   }
 
+  async function archiveJobFromKanban(jobId) {
+    if (!confirm('Archive/cancel this job?')) return
+    const { error } = await supabase.from('jobs')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', jobId)
+    if (error) { showToast('Error archiving job'); return }
+    showToast('Job archived')
+    loadJobs()
+  }
+
+  // Reminder modal
+  const [showReminderModal, setShowReminderModal] = useState(false)
+  const [reminderJob, setReminderJob] = useState(null)
+  const [reminderDate, setReminderDate] = useState('')
+  const [reminderNote, setReminderNote] = useState('')
+
+  function openReminderModal(job) {
+    setReminderJob(job)
+    setReminderDate(job.reminder_date || '')
+    setReminderNote(job.reminder_note || '')
+    setShowReminderModal(true)
+  }
+
+  async function saveReminder() {
+    if (!reminderJob) return
+    const { error } = await supabase.from('jobs').update({
+      reminder_date: reminderDate || null,
+      reminder_note: reminderNote.trim() || null,
+      updated_at: new Date().toISOString()
+    }).eq('id', reminderJob.id)
+    if (error) { showToast('Error saving reminder'); return }
+    showToast(reminderDate ? 'Reminder set for ' + reminderDate : 'Reminder cleared')
+    setShowReminderModal(false)
+    loadJobs()
+  }
+
+  async function clearReminder() {
+    if (!reminderJob) return
+    await supabase.from('jobs').update({
+      reminder_date: null, reminder_note: null, updated_at: new Date().toISOString()
+    }).eq('id', reminderJob.id)
+    showToast('Reminder cleared')
+    setShowReminderModal(false)
+    loadJobs()
+  }
+
   async function moveJob(jobId, newStage) {
     const { error } = await supabase.from('jobs')
       .update({ stage: newStage, stage_changed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
@@ -390,30 +436,78 @@ export default function JobsList() {
                     {stageJobs.length === 0 ? (
                       <div className="kanban-empty">No jobs here</div>
                     ) : (
-                      stageJobs.map(job => (
-                        <div key={job.id} className="kanban-card" onClick={() => setDetailJobId(job.id)}>
-                          <div className="kanban-card-name">{job.name}</div>
-                          <div className="kanban-card-client">{job.clients?.name || ''}</div>
-                          <div className="kanban-card-bottom">
-                            <div className="kanban-card-value">
-                              {job.estimated_value ? '$' + parseFloat(job.estimated_value).toLocaleString() : ''}
+                      stageJobs.map(job => {
+                        const today = new Date().toISOString().split('T')[0]
+                        const hasReminder = job.reminder_date
+                        const reminderOverdue = hasReminder && job.reminder_date <= today
+                        const schedDate = job.scheduled_start ? new Date(job.scheduled_start).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : null
+
+                        return (
+                          <div key={job.id} className="kanban-card" onClick={() => setDetailJobId(job.id)}>
+                            {/* Top bar — date/reminder + archive */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                {schedDate && (
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--blue)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                                    📅 {schedDate}
+                                  </span>
+                                )}
+                                {hasReminder && (
+                                  <span style={{
+                                    fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3,
+                                    color: reminderOverdue ? 'var(--red)' : 'var(--yellow)',
+                                    background: reminderOverdue ? 'rgba(255,59,92,0.1)' : 'rgba(255,184,0,0.1)',
+                                    padding: '2px 6px', borderRadius: 5
+                                  }}>
+                                    🔔 {job.reminder_date}
+                                  </span>
+                                )}
+                                {job.priority !== 'normal' && (
+                                  <span style={{
+                                    fontSize: 9, fontWeight: 800, padding: '2px 5px', borderRadius: 4,
+                                    background: PRIORITY_COLORS[job.priority] + '18', color: PRIORITY_COLORS[job.priority]
+                                  }}>{PRIORITY_LABELS[job.priority].toUpperCase()}</span>
+                                )}
+                              </div>
+                              {/* Archive button */}
+                              <button onClick={e => { e.stopPropagation(); archiveJobFromKanban(job.id) }} style={{
+                                background: 'none', border: 'none', color: 'var(--text3)',
+                                cursor: 'pointer', fontSize: 14, padding: '0 2px', opacity: 0.6
+                              }} title="Archive / Cancel">✕</button>
                             </div>
-                            <div className="kanban-card-date">{job.job_number}</div>
-                          </div>
-                          <div className="kanban-card-actions" onClick={e => e.stopPropagation()}>
-                            {stageIdx > 0 && (
-                              <button className="kanban-move-btn" onClick={() => moveJob(job.id, JOB_STAGES[stageIdx - 1])}>
-                                ← {STAGE_LABELS[JOB_STAGES[stageIdx - 1]]}
-                              </button>
+
+                            <div className="kanban-card-name">{job.name}</div>
+                            <div className="kanban-card-client">{job.clients?.name || ''}</div>
+                            {job.reminder_note && (
+                              <div style={{ fontSize: 11, color: reminderOverdue ? 'var(--red)' : 'var(--yellow)', marginTop: 4, fontStyle: 'italic', lineHeight: 1.4 }}>
+                                💬 {job.reminder_note}
+                              </div>
                             )}
-                            {stageIdx < JOB_STAGES.length - 1 && (
-                              <button className="kanban-move-btn forward" onClick={() => moveJob(job.id, JOB_STAGES[stageIdx + 1])}>
-                                → {STAGE_LABELS[JOB_STAGES[stageIdx + 1]]}
+                            <div className="kanban-card-bottom">
+                              <div className="kanban-card-value">
+                                {job.estimated_value ? '$' + parseFloat(job.estimated_value).toLocaleString() : ''}
+                              </div>
+                              <div className="kanban-card-date">{job.job_number}</div>
+                            </div>
+                            <div className="kanban-card-actions" onClick={e => e.stopPropagation()}>
+                              {stageIdx > 0 && (
+                                <button className="kanban-move-btn" onClick={() => moveJob(job.id, JOB_STAGES[stageIdx - 1])}>
+                                  ← {STAGE_LABELS[JOB_STAGES[stageIdx - 1]]}
+                                </button>
+                              )}
+                              <button className="kanban-move-btn" onClick={() => openReminderModal(job)}
+                                style={{ background: 'rgba(255,184,0,0.08)', color: 'var(--yellow)', border: '1px solid rgba(255,184,0,0.2)', flex: 'none', padding: '8px 10px' }}>
+                                🔔
                               </button>
-                            )}
+                              {stageIdx < JOB_STAGES.length - 1 && (
+                                <button className="kanban-move-btn forward" onClick={() => moveJob(job.id, JOB_STAGES[stageIdx + 1])}>
+                                  → {STAGE_LABELS[JOB_STAGES[stageIdx + 1]]}
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        )
+                      })
                     )}
                   </div>
                 </div>
@@ -682,6 +776,39 @@ export default function JobsList() {
             </button>
           )}
           <button className="btn btn-secondary btn-full" style={{ marginTop: 8 }} onClick={() => setShowModal(false)}>
+            Cancel
+          </button>
+        </Modal>
+      )}
+
+      {/* Reminder Modal */}
+      {showReminderModal && reminderJob && (
+        <Modal title="Set Reminder" onClose={() => setShowReminderModal(false)}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{reminderJob.name}</div>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 16 }}>{reminderJob.job_number} · {reminderJob.clients?.name}</div>
+
+          <div className="form-field">
+            <label className="form-label">Reminder Date</label>
+            <input className="form-input" type="date" value={reminderDate}
+              onChange={e => setReminderDate(e.target.value)} />
+          </div>
+
+          <div className="form-field">
+            <label className="form-label">Reminder Note</label>
+            <textarea className="form-input" value={reminderNote}
+              onChange={e => setReminderNote(e.target.value)}
+              placeholder="e.g. Follow up with client on flooring selection&#10;e.g. Confirm start date with crew&#10;e.g. Client needs to approve quote by this date" />
+          </div>
+
+          <button className="btn btn-primary btn-full" onClick={saveReminder}>
+            {reminderDate ? '🔔 Set Reminder' : 'Save Note'}
+          </button>
+          {(reminderJob.reminder_date || reminderJob.reminder_note) && (
+            <button className="btn btn-danger btn-full" style={{ marginTop: 8 }} onClick={clearReminder}>
+              Clear Reminder
+            </button>
+          )}
+          <button className="btn btn-secondary btn-full" style={{ marginTop: 8 }} onClick={() => setShowReminderModal(false)}>
             Cancel
           </button>
         </Modal>

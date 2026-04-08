@@ -14,7 +14,7 @@ export default function NotificationCenter({ onClose, onNavigate }) {
     const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]
 
     // Build notifications from real data
-    const [overdueRes, tasksDueRes, recentActivityRes, unapprovedTimeRes] = await Promise.all([
+    const [overdueRes, tasksDueRes, recentActivityRes, unapprovedTimeRes, jobRemindersRes] = await Promise.all([
       // Overdue invoices
       supabase.from('invoices').select('id, invoice_number, total, due_date, clients(name)')
         .eq('company_id', companyId).eq('status', 'overdue').is('archived_at', null),
@@ -29,10 +29,29 @@ export default function NotificationCenter({ onClose, onNavigate }) {
         .order('created_at', { ascending: false }).limit(10),
       // Unapproved time entries
       supabase.from('time_entries').select('id, date, total_hours, workers(first_name, last_name)')
-        .eq('company_id', companyId).eq('is_approved', false)
+        .eq('company_id', companyId).eq('is_approved', false),
+      // Job reminders due today or overdue
+      supabase.from('jobs').select('id, name, job_number, reminder_date, reminder_note, clients(name)')
+        .eq('company_id', companyId).is('archived_at', null)
+        .not('reminder_date', 'is', null)
+        .lte('reminder_date', today)
     ])
 
     const notifs = []
+
+    // Job reminders (highest priority — these are user-set follow-ups)
+    ;(jobRemindersRes.data || []).forEach(j => {
+      const isOverdue = j.reminder_date < today
+      notifs.push({
+        id: 'reminder-' + j.id,
+        type: 'reminder',
+        icon: '🔔',
+        title: j.reminder_note || `Follow up on ${j.name}`,
+        subtitle: `${j.job_number} · ${j.clients?.name || ''} · ${isOverdue ? 'Overdue' : 'Due today'}`,
+        color: isOverdue ? 'var(--red)' : 'var(--yellow)',
+        action: () => { onClose(); onNavigate('jobs') }
+      })
+    })
 
     // Overdue invoices
     ;(overdueRes.data || []).forEach(inv => {
@@ -102,7 +121,7 @@ export default function NotificationCenter({ onClose, onNavigate }) {
     return Math.floor(hours / 24) + 'd ago'
   }
 
-  const urgentCount = notifications.filter(n => ['overdue', 'task'].includes(n.type)).length
+  const urgentCount = notifications.filter(n => ['overdue', 'task', 'reminder'].includes(n.type)).length
 
   return (
     <div style={{
@@ -147,7 +166,8 @@ export default function NotificationCenter({ onClose, onNavigate }) {
               display: 'flex', gap: 12, alignItems: 'flex-start', cursor: 'pointer',
               borderLeft: n.type === 'overdue' ? '3px solid var(--red)' :
                 n.type === 'task' ? '3px solid var(--yellow)' :
-                n.type === 'approval' ? '3px solid var(--yellow)' : '3px solid var(--border)',
+                n.type === 'approval' ? '3px solid var(--yellow)' :
+                n.type === 'reminder' ? '3px solid var(--yellow)' : '3px solid var(--border)',
               transition: 'background 0.15s'
             }}>
               <span style={{ fontSize: 20, flexShrink: 0 }}>{n.icon}</span>
