@@ -163,7 +163,7 @@ export default function TasksList() {
   return (
     <div>
       {/* Filter tabs */}
-      <div style={{ display: 'flex', gap: 8, padding: '12px 16px 4px', overflowX: 'auto' }}>
+      <div style={{ display: 'flex', gap: 8, padding: '12px 16px 4px', overflowX: 'auto', scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
         {['active', 'today', 'all', 'done'].map(f => (
           <div key={f} onClick={() => setFilter(f)} style={{
             padding: '6px 14px', borderRadius: 10, fontSize: 12, fontWeight: 700,

@@ -127,11 +127,13 @@ export default function NotificationCenter({ onClose, onNavigate }) {
     <div style={{
       position: 'fixed', inset: 0, zIndex: 250,
       background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
-      display: 'flex', flexDirection: 'column'
+      display: 'flex', flexDirection: 'column',
+      paddingTop: 'env(safe-area-inset-top, 44px)'
     }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div style={{
         width: '100%', maxWidth: 480, margin: '0 auto',
-        flex: 1, overflow: 'auto', padding: 16
+        flex: 1, overflow: 'auto', padding: '12px 16px',
+        paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))'
       }}>
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>

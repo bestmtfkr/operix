@@ -52,8 +52,10 @@ Answer in the same language the user writes in (English or French).`,
 
   return (
     <div style={{
-      position: 'fixed', bottom: 70, right: 12, width: 340, maxWidth: 'calc(100vw - 24px)',
-      height: 460, maxHeight: 'calc(100vh - 160px)',
+      position: 'fixed',
+      bottom: 'calc(56px + env(safe-area-inset-bottom, 0px) + 12px)',
+      right: 12, width: 340, maxWidth: 'calc(100vw - 24px)',
+      height: 420, maxHeight: 'calc(100vh - 56px - env(safe-area-inset-top, 44px) - env(safe-area-inset-bottom, 0px) - 80px)',
       background: 'var(--card)', border: '1px solid var(--border2)',
       borderRadius: 20, display: 'flex', flexDirection: 'column',
       boxShadow: '0 16px 48px rgba(0,0,0,0.5)', zIndex: 200, overflow: 'hidden'

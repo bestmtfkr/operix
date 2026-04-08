@@ -1,7 +1,10 @@
 .login-screen {
   min-height: 100vh; display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  padding: 28px; overflow-y: auto;
+  padding: 28px;
+  padding-top: calc(env(safe-area-inset-top, 44px) + 28px);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 28px);
+  overflow-y: auto;
   background: radial-gradient(ellipse at 50% 0%, rgba(0,212,160,0.06) 0%, transparent 60%);
 }
 

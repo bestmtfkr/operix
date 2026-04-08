@@ -64,7 +64,7 @@ export default function InvoicePDF({ invoiceId, onClose }) {
   const client = invoice.clients || {}
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', overflow: 'auto', padding: '20px 16px' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', overflow: 'auto', padding: '20px 16px', paddingTop: 'calc(env(safe-area-inset-top, 44px) + 16px)', paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)' }}>
       {/* Actions */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, width: '100%', maxWidth: 700 }}>
         <button className="btn btn-primary" style={{ flex: 1 }} onClick={printInvoice}>🖨 Print / Save PDF</button>

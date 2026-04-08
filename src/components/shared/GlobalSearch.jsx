@@ -56,7 +56,9 @@ export default function GlobalSearch({ onClose, onNavigate }) {
     <div style={{
       position: 'fixed', inset: 0, zIndex: 250,
       background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
-      display: 'flex', flexDirection: 'column', padding: '16px'
+      display: 'flex', flexDirection: 'column',
+      padding: '16px', paddingTop: 'calc(env(safe-area-inset-top, 44px) + 12px)',
+      paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)'
     }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       {/* Search input */}
       <div style={{
