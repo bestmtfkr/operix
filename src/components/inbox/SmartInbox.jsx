@@ -41,7 +41,7 @@ export default function SmartInbox() {
     // Sync on first load
     fetchGmailEmails(true)
     // Then every 5 minutes
-    const interval = setInterval(() => fetchGmailEmails(true), 5 * 60 * 1000)
+    const interval = setInterval(() => fetchGmailEmails(true), 2 * 60 * 1000)
     return () => clearInterval(interval)
   }, [gmailConnected, companyId])
 
@@ -86,7 +86,7 @@ export default function SmartInbox() {
       const res = await fetch('/.netlify/functions/gmail-fetch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ company_id: companyId, max_results: 15 })
+        body: JSON.stringify({ company_id: companyId, max_results: 100 })
       })
 
       const data = await res.json()
@@ -446,7 +446,7 @@ Only return valid JSON.`
               <span style={{ fontSize: 16 }}>✅</span>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)' }}>Gmail Connected — Auto-syncing</div>
-                <div style={{ fontSize: 11, color: 'var(--text3)' }}>{gmailEmail} · checks every 5 min</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)' }}>{gmailEmail} · auto-syncing</div>
               </div>
             </div>
             <button onClick={() => fetchGmailEmails(false)} disabled={syncing} style={{
