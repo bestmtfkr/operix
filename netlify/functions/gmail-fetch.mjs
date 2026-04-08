@@ -1,35 +1,68 @@
-// Fetches emails from Gmail using the user's access token
+import { createClient } from '@supabase/supabase-js'
+
+// Fetches emails from Gmail — tokens are read server-side from DB
+// Frontend only sends company_id, never sees tokens
 export default async (req) => {
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'POST only' }), { status: 405 })
   }
 
   try {
-    const { access_token, refresh_token, max_results } = await req.json()
+    const { company_id, max_results } = await req.json()
+    if (!company_id) {
+      return new Response(JSON.stringify({ error: 'company_id required' }), { status: 400 })
+    }
 
-    let token = access_token
+    // Get tokens from DB (server-side only)
+    const supabaseAdmin = createClient(
+      process.env.SUPABASE_URL || 'https://gizgnbjaemxndmrherir.supabase.co',
+      process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || ''
+    )
 
-    // Try to refresh token if we have a refresh token
-    if (refresh_token && !access_token) {
+    const { data: company } = await supabaseAdmin.from('companies')
+      .select('gmail_tokens').eq('id', company_id).single()
+
+    if (!company?.gmail_tokens?.access_token) {
+      return new Response(JSON.stringify({ error: 'Gmail not connected' }), { status: 401 })
+    }
+
+    let token = company.gmail_tokens.access_token
+
+    // Check if token expired, refresh if needed
+    if (company.gmail_tokens.expires_at && new Date(company.gmail_tokens.expires_at) < new Date()) {
+      if (!company.gmail_tokens.refresh_token) {
+        return new Response(JSON.stringify({ error: 'Token expired, reconnect Gmail' }), { status: 401 })
+      }
+
       const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           client_id: process.env.GOOGLE_CLIENT_ID,
           client_secret: process.env.GOOGLE_CLIENT_SECRET,
-          refresh_token,
+          refresh_token: company.gmail_tokens.refresh_token,
           grant_type: 'refresh_token'
         })
       })
       const refreshData = await refreshRes.json()
+
+      if (!refreshData.access_token) {
+        return new Response(JSON.stringify({ error: 'Token refresh failed, reconnect Gmail' }), { status: 401 })
+      }
+
       token = refreshData.access_token
+
+      // Update stored token
+      await supabaseAdmin.from('companies').update({
+        gmail_tokens: {
+          ...company.gmail_tokens,
+          access_token: token,
+          expires_at: new Date(Date.now() + (refreshData.expires_in || 3600) * 1000).toISOString()
+        }
+      }).eq('id', company_id)
     }
 
-    if (!token) {
-      return new Response(JSON.stringify({ error: 'No valid token' }), { status: 401 })
-    }
-
-    // Fetch recent messages
+    // Fetch messages
     const listRes = await fetch(
       `https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=${max_results || 10}&q=is:inbox`,
       { headers: { Authorization: `Bearer ${token}` } }
@@ -37,12 +70,12 @@ export default async (req) => {
     const listData = await listRes.json()
 
     if (!listData.messages) {
-      return new Response(JSON.stringify({ emails: [], new_token: token }), {
+      return new Response(JSON.stringify({ emails: [] }), {
         headers: { 'Content-Type': 'application/json' }
       })
     }
 
-    // Fetch each message details
+    // Fetch each message
     const emails = await Promise.all(
       listData.messages.slice(0, max_results || 10).map(async (msg) => {
         const msgRes = await fetch(
@@ -50,18 +83,16 @@ export default async (req) => {
           { headers: { Authorization: `Bearer ${token}` } }
         )
         const msgData = await msgRes.json()
-
         const headers = msgData.payload?.headers || []
         const getHeader = (name) => headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || ''
 
-        // Extract body
         let body = ''
         if (msgData.payload?.body?.data) {
-          body = atob(msgData.payload.body.data.replace(/-/g, '+').replace(/_/g, '/'))
+          body = Buffer.from(msgData.payload.body.data, 'base64url').toString('utf8')
         } else if (msgData.payload?.parts) {
           const textPart = msgData.payload.parts.find(p => p.mimeType === 'text/plain')
           if (textPart?.body?.data) {
-            body = atob(textPart.body.data.replace(/-/g, '+').replace(/_/g, '/'))
+            body = Buffer.from(textPart.body.data, 'base64url').toString('utf8')
           }
         }
 
@@ -72,13 +103,13 @@ export default async (req) => {
           to: getHeader('To'),
           subject: getHeader('Subject'),
           date: getHeader('Date'),
-          body: body.slice(0, 3000), // Limit body size
+          body: body.slice(0, 3000),
           snippet: msgData.snippet || ''
         }
       })
     )
 
-    return new Response(JSON.stringify({ emails, new_token: token }), {
+    return new Response(JSON.stringify({ emails }), {
       headers: { 'Content-Type': 'application/json' }
     })
 

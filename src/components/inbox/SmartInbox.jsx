@@ -55,47 +55,31 @@ export default function SmartInbox() {
     }
   }
 
-  async function saveGmailTokens(tokens) {
-    await supabase.from('companies').update({
-      gmail_tokens: {
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        email: tokens.email,
-        connected_at: new Date().toISOString()
-      }
-    }).eq('id', companyId)
+  async function saveGmailTokens(data) {
+    // Tokens are stored server-side by the callback function
+    // Frontend only gets the email address
     setGmailConnected(true)
-    setGmailEmail(tokens.email)
-    showToast('Gmail connected: ' + tokens.email)
-    fetchGmailEmails(tokens.access_token)
+    setGmailEmail(data.email || '')
+    showToast('Gmail connected securely: ' + (data.email || ''))
+    fetchGmailEmails()
   }
 
   function connectGmail() {
-    window.open('/api/gmail/connect', 'gmail-auth', 'width=500,height=600,left=200,top=100')
+    window.open(`/api/gmail/connect?company_id=${companyId}`, 'gmail-auth', 'width=500,height=600,left=200,top=100')
   }
 
-  async function fetchGmailEmails(token) {
+  async function fetchGmailEmails() {
     setSyncing(true)
     try {
-      const { data: company } = await supabase.from('companies').select('gmail_tokens').eq('id', companyId).single()
-      const accessToken = token || company?.gmail_tokens?.access_token
-      const refreshToken = company?.gmail_tokens?.refresh_token
-
+      // Only send company_id — tokens are read server-side
       const res = await fetch('/.netlify/functions/gmail-fetch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ access_token: accessToken, refresh_token: refreshToken, max_results: 15 })
+        body: JSON.stringify({ company_id: companyId, max_results: 15 })
       })
 
       const data = await res.json()
-      if (data.error) { showToast('Gmail sync error: ' + data.error); setSyncing(false); return }
-
-      // Save new token if refreshed
-      if (data.new_token && data.new_token !== accessToken) {
-        await supabase.from('companies').update({
-          gmail_tokens: { ...company.gmail_tokens, access_token: data.new_token }
-        }).eq('id', companyId)
-      }
+      if (data.error) { showToast('Gmail: ' + data.error); setSyncing(false); return }
 
       // Check which emails we already have
       const existingIds = emails.map(e => e.metadata?.gmail_id).filter(Boolean)
