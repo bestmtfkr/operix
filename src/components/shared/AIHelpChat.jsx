@@ -5,7 +5,7 @@ import { useAuth } from '../../hooks/useAuth'
 export default function AIHelpChat({ onClose }) {
   const { profile } = useAuth()
   const [messages, setMessages] = useState([
-    { role: 'ai', text: `Hi ${profile?.full_name?.split(' ')[0] || 'there'}! I'm your Operix AI assistant. I can help you with:\n\n• How to use any feature\n• Creating jobs, invoices, quotes\n• Understanding your dashboard\n• Troubleshooting issues\n\nWhat do you need help with?` }
+    { role: 'ai', text: `Hey ${profile?.full_name?.split(' ')[0] || 'there'}! 👋\n\nI'm your Operix assistant. Ask me anything:\n\n• How to use a feature\n• Help creating jobs or invoices\n• Troubleshooting\n• Tips & shortcuts` }
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -41,12 +41,12 @@ The app has these modules:
 
 Users can also use AI to auto-fill job forms by pasting call summaries or emails.
 
-Be helpful, concise, and friendly. If the user has a bug or feature request, suggest they contact the admin.
+Be helpful, concise, and friendly. Keep answers short — 2-3 sentences max unless they ask for detail.
 Answer in the same language the user writes in (English or French).`,
-      512
+      512, 'haiku'
     )
 
-    setMessages(prev => [...prev, { role: 'ai', text: result || "Sorry, I couldn't process that. Try again or contact support." }])
+    setMessages(prev => [...prev, { role: 'ai', text: result || "Sorry, couldn't process that. Try again or contact support." }])
     setLoading(false)
   }
 
@@ -54,75 +54,108 @@ Answer in the same language the user writes in (English or French).`,
     <div style={{
       position: 'fixed',
       bottom: 'calc(56px + env(safe-area-inset-bottom, 0px) + 12px)',
-      right: 12, width: 340, maxWidth: 'calc(100vw - 24px)',
-      height: 420, maxHeight: 'calc(100vh - 56px - env(safe-area-inset-top, 44px) - env(safe-area-inset-bottom, 0px) - 80px)',
-      background: 'var(--card)', border: '1px solid var(--border2)',
-      borderRadius: 20, display: 'flex', flexDirection: 'column',
-      boxShadow: '0 16px 48px rgba(0,0,0,0.5)', zIndex: 200, overflow: 'hidden'
+      left: 12, right: 12,
+      maxWidth: 380,
+      height: 440,
+      maxHeight: 'calc(100vh - 56px - env(safe-area-inset-top, 44px) - env(safe-area-inset-bottom, 0px) - 80px)',
+      background: 'var(--bg)', border: '1px solid var(--border2)',
+      borderRadius: 24, display: 'flex', flexDirection: 'column',
+      boxShadow: '0 20px 60px rgba(0,0,0,0.6)', zIndex: 200, overflow: 'hidden'
     }}>
       {/* Header */}
       <div style={{
-        padding: '14px 16px', borderBottom: '1px solid var(--border)',
+        padding: '16px 18px', borderBottom: '1px solid var(--border)',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        background: 'linear-gradient(135deg, rgba(0,212,160,0.06), rgba(0,153,255,0.06))'
+        background: 'linear-gradient(135deg, rgba(0,212,160,0.08), rgba(0,153,255,0.06))',
+        flexShrink: 0
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{
-            width: 28, height: 28, borderRadius: 8,
+            width: 34, height: 34, borderRadius: 10,
             background: 'linear-gradient(135deg, var(--primary), var(--primary2))',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18
           }}>🤖</div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 800 }}>Operix AI</div>
-            <div style={{ fontSize: 10, color: 'var(--text3)' }}>Help & Support</div>
+            <div style={{ fontSize: 14, fontWeight: 800 }}>Operix AI</div>
+            <div style={{ fontSize: 10, color: 'var(--primary)', fontWeight: 600 }}>Online · Ready to help</div>
           </div>
         </div>
         <button onClick={onClose} style={{
-          background: 'none', border: 'none', color: 'var(--text3)',
-          cursor: 'pointer', fontSize: 18
+          background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10,
+          width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', fontSize: 14, color: 'var(--text2)'
         }}>✕</button>
       </div>
 
       {/* Messages */}
-      <div ref={chatRef} style={{ flex: 1, overflow: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div ref={chatRef} style={{
+        flex: 1, overflow: 'auto', padding: 14,
+        display: 'flex', flexDirection: 'column', gap: 10,
+        WebkitOverflowScrolling: 'touch'
+      }}>
         {messages.map((m, i) => (
           <div key={i} style={{
             alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
             maxWidth: '85%',
-            padding: '10px 14px', borderRadius: 14,
-            background: m.role === 'user' ? 'linear-gradient(135deg, var(--primary), var(--primary2))' : 'var(--bg2)',
-            color: m.role === 'user' ? '#000' : 'var(--text2)',
-            fontSize: 13, lineHeight: 1.5, fontWeight: m.role === 'user' ? 600 : 400,
-            whiteSpace: 'pre-wrap'
           }}>
-            {m.text}
+            {m.role === 'ai' && (
+              <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4, fontWeight: 600 }}>Operix AI</div>
+            )}
+            <div style={{
+              padding: '12px 16px',
+              borderRadius: m.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+              background: m.role === 'user'
+                ? 'linear-gradient(135deg, var(--primary), var(--primary2))'
+                : 'var(--card)',
+              border: m.role === 'user' ? 'none' : '1px solid var(--border)',
+              color: m.role === 'user' ? '#000' : 'var(--text)',
+              fontSize: 14, lineHeight: 1.6, fontWeight: m.role === 'user' ? 600 : 400,
+              whiteSpace: 'pre-wrap'
+            }}>
+              {m.text}
+            </div>
           </div>
         ))}
         {loading && (
-          <div style={{ alignSelf: 'flex-start', padding: '10px 14px', background: 'var(--bg2)', borderRadius: 14 }}>
-            <div className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+          <div style={{ alignSelf: 'flex-start' }}>
+            <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4, fontWeight: 600 }}>Operix AI</div>
+            <div style={{
+              padding: '12px 16px', background: 'var(--card)', border: '1px solid var(--border)',
+              borderRadius: '18px 18px 18px 4px',
+              display: 'flex', alignItems: 'center', gap: 8
+            }}>
+              <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
+              <span style={{ fontSize: 12, color: 'var(--text3)' }}>Thinking...</span>
+            </div>
           </div>
         )}
       </div>
 
       {/* Input */}
-      <div style={{ padding: 10, borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
+      <div style={{
+        padding: 12, borderTop: '1px solid var(--border)',
+        display: 'flex', gap: 8, flexShrink: 0,
+        background: 'var(--bg)'
+      }}>
         <input
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') send() }}
           placeholder="Ask anything..."
           style={{
-            flex: 1, background: 'var(--bg2)', border: '1px solid var(--border2)',
-            borderRadius: 10, padding: '10px 14px', fontSize: 13, color: 'var(--text)',
+            flex: 1, background: 'var(--card)', border: '1px solid var(--border)',
+            borderRadius: 14, padding: '12px 16px', fontSize: 14, color: 'var(--text)',
             outline: 'none', fontFamily: 'DM Sans'
           }}
         />
         <button onClick={send} disabled={loading} style={{
-          width: 38, height: 38, borderRadius: 10,
-          background: 'linear-gradient(135deg, var(--primary), var(--primary2))',
-          border: 'none', cursor: 'pointer', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0
+          width: 42, height: 42, borderRadius: 14,
+          background: input.trim() ? 'linear-gradient(135deg, var(--primary), var(--primary2))' : 'var(--card)',
+          border: input.trim() ? 'none' : '1px solid var(--border)',
+          cursor: 'pointer', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0,
+          color: input.trim() ? '#000' : 'var(--text3)',
+          transition: 'all 0.2s'
         }}>→</button>
       </div>
     </div>
