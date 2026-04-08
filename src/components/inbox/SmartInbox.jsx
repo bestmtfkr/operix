@@ -241,21 +241,29 @@ Only return valid JSON.`
       desc += email.body
     }
 
+    // Clean AI values — strip placeholder text
+    const clean = (v) => {
+      if (!v || v === 'null') return ''
+      const lower = v.toString().toLowerCase()
+      if (lower.includes('not mentioned') || lower.includes('not specified') || lower.includes('not provided') || lower.includes('[') || lower === 'n/a' || lower === 'none' || lower === 'unknown') return ''
+      return v
+    }
+
     setCreateJobForm({
       name: email.subject || '',
       description: desc || email.raw_text || '',
       stage: 'lead',
       priority: email.priority || 'normal',
       job_type: '',
-      estimated_value: extracted.amount || '',
-      site_address: extracted.address || '',
+      estimated_value: clean(extracted.amount),
+      site_address: clean(extracted.address),
       site_city: '',
       site_province_state: '',
       unit_numbers: '',
       scheduled_start: '',
       scheduled_end: '',
       insurance_company: '',
-      insurance_claim_number: extracted.claim_number || '',
+      insurance_claim_number: clean(extracted.claim_number),
       notes: ''
     })
     setShowCreateJobModal(true)

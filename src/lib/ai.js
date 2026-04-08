@@ -49,14 +49,15 @@ Analyze the following email and return a JSON object with:
   "summary": "2-3 sentence summary of what this email is about and what action is needed",
   "suggested_action": "create_job" | "update_job" | "create_invoice" | "follow_up" | "none",
   "extracted_data": {
-    "client_name": "if mentioned",
-    "address": "if mentioned",
-    "claim_number": "if mentioned",
-    "amount": "if mentioned",
-    "deadline": "if mentioned"
+    "client_name": "exact name or null if not mentioned",
+    "address": "exact address or null if not mentioned",
+    "claim_number": "exact number or null if not mentioned",
+    "amount": "number or null if not mentioned",
+    "deadline": "date or null if not mentioned"
   },
   "draft_reply": "professional 3-4 sentence reply"
 }
+IMPORTANT: For extracted_data fields, use null if the information is not explicitly stated in the email. Do NOT use placeholder text like "not mentioned", "not specified", "[unknown]", etc. Either the exact value or null.
 Only return valid JSON, no other text.`)
 }
 
