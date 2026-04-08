@@ -222,41 +222,53 @@ Only return valid JSON.`
     loadEmails()
   }
 
-  async function createJobFromEmail(email) {
-    const extracted = email.metadata?.extracted_data || {}
-    let clientId = null
+  const [showCreateJobModal, setShowCreateJobModal] = useState(false)
+  const [createJobEmail, setCreateJobEmail] = useState(null)
+  const [createJobClientId, setCreateJobClientId] = useState('')
+  const [createJobNewClient, setCreateJobNewClient] = useState('')
 
-    if (extracted.client_name) {
-      const { data: existing } = await supabase.from('clients')
-        .select('id').eq('company_id', companyId)
-        .ilike('name', `%${extracted.client_name}%`).limit(1)
-      if (existing?.length) {
-        clientId = existing[0].id
-      } else {
-        const { data: newClient } = await supabase.from('clients').insert({
-          company_id: companyId, name: extracted.client_name, type: 'commercial'
-        }).select().single()
-        if (newClient) clientId = newClient.id
-      }
+  function startCreateJobFromEmail(email) {
+    const extracted = email.metadata?.extracted_data || {}
+    setCreateJobEmail(email)
+    setCreateJobNewClient(extracted.client_name || email.from_name || '')
+    setCreateJobClientId('')
+    setShowCreateJobModal(true)
+  }
+
+  async function confirmCreateJobFromEmail() {
+    if (!createJobEmail) return
+    const extracted = createJobEmail.metadata?.extracted_data || {}
+    let clientId = createJobClientId
+
+    // Create new client if no existing one selected
+    if (!clientId && createJobNewClient.trim()) {
+      const { data: newClient } = await supabase.from('clients').insert({
+        company_id: companyId, name: createJobNewClient.trim(), type: 'commercial',
+        contact_email: createJobEmail.from_address || null
+      }).select().single()
+      if (newClient) clientId = newClient.id
+      loadClients()
     }
 
-    if (!clientId) { showToast('Could not determine client'); return }
+    if (!clientId) { showToast('Please select or enter a client name'); return }
 
     const { data: jobNum } = await supabase.rpc('generate_job_number', { p_company_id: companyId })
     const { data: job, error } = await supabase.from('jobs').insert({
       company_id: companyId, job_number: jobNum || ('JOB-' + Date.now()),
-      client_id: clientId, name: email.subject || 'New Job',
-      description: email.summary || '', stage: 'lead',
-      priority: email.priority || 'normal',
+      client_id: clientId, name: createJobEmail.subject || 'New Job',
+      description: createJobEmail.summary || '', stage: 'lead',
+      priority: createJobEmail.priority || 'normal',
       site_address: extracted.address || '',
       insurance_claim_number: extracted.claim_number || '',
       created_by: profile?.id
     }).select().single()
 
-    if (error) { showToast('Error creating job'); return }
+    if (error) { showToast('Error creating job'); console.error(error); return }
 
-    await linkEmailToJob(email.id, job.id)
+    await linkEmailToJob(createJobEmail.id, job.id)
     showToast('Job created and email linked!')
+    setShowCreateJobModal(false)
+    setShowDetail(null)
     loadJobs()
   }
 
@@ -612,13 +624,46 @@ Only return valid JSON.`
           {/* Action buttons */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
             {!showDetail.metadata?.linked_job_id && (
-              <button className="btn btn-primary btn-full" style={{ padding: 14, fontSize: 14 }} onClick={() => createJobFromEmail(showDetail)}>
+              <button className="btn btn-primary btn-full" style={{ padding: 14, fontSize: 14 }} onClick={() => startCreateJobFromEmail(showDetail)}>
                 + Create New Job from Email
               </button>
             )}
             <button className="btn btn-danger btn-full" style={{ padding: 12 }} onClick={() => deleteEmail(showDetail.id)}>Delete Email</button>
             <button className="btn btn-secondary btn-full" style={{ padding: 12 }} onClick={() => setShowDetail(null)}>Close</button>
           </div>
+        </Modal>
+      )}
+
+      {/* Create Job from Email Modal */}
+      {showCreateJobModal && createJobEmail && (
+        <Modal title="Create Job from Email" onClose={() => setShowCreateJobModal(false)}>
+          <div style={{ background: 'var(--bg2)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 2 }}>From: {createJobEmail.from_name || createJobEmail.from_address}</div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>{createJobEmail.subject}</div>
+          </div>
+
+          <div className="form-field">
+            <label className="form-label">Select Existing Client</label>
+            <select className="form-input" value={createJobClientId} onChange={e => { setCreateJobClientId(e.target.value); if (e.target.value) setCreateJobNewClient('') }}>
+              <option value="">-- Or create new below --</option>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+
+          {!createJobClientId && (
+            <div className="form-field">
+              <label className="form-label">Or Create New Client</label>
+              <input className="form-input" placeholder="Client name"
+                value={createJobNewClient} onChange={e => setCreateJobNewClient(e.target.value)} />
+            </div>
+          )}
+
+          <button className="btn btn-primary btn-full" style={{ marginTop: 8 }} onClick={confirmCreateJobFromEmail}>
+            Create Job
+          </button>
+          <button className="btn btn-secondary btn-full" style={{ marginTop: 8 }} onClick={() => setShowCreateJobModal(false)}>
+            Cancel
+          </button>
         </Modal>
       )}
     </div>
