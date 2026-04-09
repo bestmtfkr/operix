@@ -143,7 +143,8 @@ export default function SmartInbox() {
             thread_id: email.thread_id,
             needs_full_analysis: true,
             date: email.date,
-            linked_job_id: autoLinkedJobId
+            linked_job_id: autoLinkedJobId,
+            attachments: email.attachments || []
           }
         }).select().single()
 
@@ -227,7 +228,8 @@ export default function SmartInbox() {
               needs_full_analysis: true,
               needs_categorize: true,
               date: email.date,
-              linked_job_id: autoLinkedJobId
+              linked_job_id: autoLinkedJobId,
+              attachments: email.attachments || []
             }
           })
           existingIds.add(email.gmail_id)
@@ -575,6 +577,30 @@ Only return valid JSON.`, 256, 'haiku'
     setOpening(false)
   }
 
+  async function downloadAttachment(email, attachment) {
+    showToast('Downloading ' + attachment.filename + '...')
+    try {
+      const res = await fetch('/.netlify/functions/gmail-attachment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: companyId,
+          gmail_id: email.metadata?.gmail_id,
+          attachment_id: attachment.id,
+          filename: attachment.filename
+        })
+      })
+      const data = await res.json()
+      if (data.url) {
+        window.open(data.url, '_blank')
+      } else {
+        showToast('Download failed')
+      }
+    } catch (err) {
+      showToast('Download error')
+    }
+  }
+
   async function unlinkEmail(id) {
     const email = emails.find(e => e.id === id)
     const meta = { ...(email?.metadata || {}) }
@@ -827,6 +853,7 @@ Only return valid JSON.`, 256, 'haiku'
                 {email.priority === 'urgent' && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(255,59,92,0.12)', color: '#FF3B5C' }}>URGENT</span>}
                 {isLinked && linkedJob && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(33,150,243,0.12)', color: 'var(--blue)' }}>🔗 {linkedJob.job_number}</span>}
                 {!isLinked && email.suggested_action === 'create_job' && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(0,212,160,0.1)', color: 'var(--primary)', border: '1px solid rgba(0,212,160,0.2)' }}>→ NEW JOB</span>}
+                {email.metadata?.attachments?.length > 0 && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(255,184,0,0.1)', color: 'var(--yellow)' }}>📎 {email.metadata.attachments.length}</span>}
               </div>
             </div>
           )
@@ -941,6 +968,36 @@ Only return valid JSON.`, 256, 'haiku'
                 <option value="">Select job...</option>
                 {jobs.map(j => <option key={j.id} value={j.id}>{j.job_number} — {j.name} ({j.clients?.name})</option>)}
               </select>
+            </div>
+          )}
+
+          {/* Attachments */}
+          {showDetail.metadata?.attachments?.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, marginBottom: 8 }}>
+                ATTACHMENTS ({showDetail.metadata.attachments.length})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {showDetail.metadata.attachments.map((att, i) => (
+                  <div key={i} onClick={() => downloadAttachment(showDetail, att)} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    background: 'var(--bg2)', border: '1px solid var(--border)',
+                    borderRadius: 12, padding: '10px 14px', cursor: 'pointer'
+                  }}>
+                    <span style={{ fontSize: 20 }}>
+                      {att.mimeType?.includes('image') ? '🖼️' :
+                       att.mimeType?.includes('pdf') ? '📄' :
+                       att.mimeType?.includes('spreadsheet') || att.mimeType?.includes('excel') ? '📊' :
+                       att.mimeType?.includes('word') || att.mimeType?.includes('document') ? '📝' : '📎'}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</div>
+                      <div style={{ fontSize: 10, color: 'var(--text3)' }}>{att.size ? (att.size / 1024).toFixed(0) + ' KB' : ''}</div>
+                    </div>
+                    <span style={{ fontSize: 11, color: 'var(--primary)', fontWeight: 700 }}>Download</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

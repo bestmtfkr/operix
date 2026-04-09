@@ -96,6 +96,24 @@ export default async (req) => {
           }
         }
 
+        // Extract attachment info (don't download yet — on demand)
+        const attachments = []
+        function findAttachments(parts) {
+          if (!parts) return
+          for (const part of parts) {
+            if (part.filename && part.body?.attachmentId) {
+              attachments.push({
+                id: part.body.attachmentId,
+                filename: part.filename,
+                mimeType: part.mimeType,
+                size: part.body.size || 0
+              })
+            }
+            if (part.parts) findAttachments(part.parts)
+          }
+        }
+        findAttachments(msgData.payload?.parts)
+
         return {
           gmail_id: msg.id,
           thread_id: msg.threadId,
@@ -104,7 +122,8 @@ export default async (req) => {
           subject: getHeader('Subject'),
           date: getHeader('Date'),
           body: body.slice(0, 3000),
-          snippet: msgData.snippet || ''
+          snippet: msgData.snippet || '',
+          attachments
         }
       })
     )
