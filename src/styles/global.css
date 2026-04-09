@@ -23,6 +23,20 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* Light Mode */
+[data-theme="light"] {
+  --bg: #F5F5F3;
+  --bg2: #EFEFEC;
+  --card: #FFFFFF;
+  --card2: #F8F8F6;
+  --card3: #EFEFEC;
+  --border: rgba(0,0,0,0.06);
+  --border2: rgba(0,0,0,0.1);
+  --text: #1A1A18;
+  --text2: #6B6B67;
+  --text3: #9B9B96;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
 html {

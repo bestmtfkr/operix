@@ -19,6 +19,19 @@ export default function AppLayout({ activeTab, onTabChange, children }) {
   const [showSearch, setShowSearch] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const [theme, setTheme] = useState(localStorage.getItem('operix_theme') || 'dark')
+
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next)
+    localStorage.setItem('operix_theme', next)
+    document.documentElement.setAttribute('data-theme', next === 'light' ? 'light' : '')
+  }
+
+  // Apply theme on mount
+  useState(() => {
+    if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light')
+  })
   const name = profile?.full_name || 'User'
   const initial = name.charAt(0).toUpperCase()
 
@@ -50,6 +63,9 @@ export default function AppLayout({ activeTab, onTabChange, children }) {
           <div className="topbar-name">{name}</div>
         </div>
         <div className="topbar-right">
+          <div className="icon-btn" onClick={toggleTheme} title={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </div>
           <div className="icon-btn" onClick={() => setShowSearch(true)}>
             🔍
           </div>
