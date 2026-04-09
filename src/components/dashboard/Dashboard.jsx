@@ -119,7 +119,7 @@ export default function Dashboard({ onNavigate }) {
           border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
           background: dashMode === 'financial' ? 'rgba(0,212,160,0.1)' : 'transparent',
           color: dashMode === 'financial' ? 'var(--primary)' : 'var(--text3)'
-        }}>💰 Financial</button>
+        }}>📄 Financial</button>
         <button onClick={() => switchMode('operational')} style={{
           flex: 1, padding: '10px 8px', fontSize: 12, fontWeight: 800,
           border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',

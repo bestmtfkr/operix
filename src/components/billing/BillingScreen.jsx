@@ -285,7 +285,7 @@ export default function BillingScreen() {
       <div className="sec">
         {filteredInvoices.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-icon">💰</div>
+            <div className="empty-icon">📄</div>
             <div className="empty-title">No invoices</div>
             <div className="empty-sub">Tap + to create your first invoice</div>
           </div>

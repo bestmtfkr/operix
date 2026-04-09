@@ -529,7 +529,7 @@ export default function JobDetail({ jobId, onBack }) {
             {timeEntries.length > 0 && (
               <button className="btn btn-primary btn-full" style={{ marginBottom: 12 }}
                 onClick={generateInvoiceFromJob}>
-                💰 Generate Invoice from Time Entries ({totalHours.toFixed(1)}h · ${totalLabor.toFixed(2)})
+                📄 Generate Invoice from Time Entries ({totalHours.toFixed(1)}h · ${totalLabor.toFixed(2)})
               </button>
             )}
             {invoices.length === 0 && timeEntries.length === 0 ? (
