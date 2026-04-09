@@ -4,6 +4,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../shared/Toast'
 import { TAX_PRESETS } from '../../lib/constants'
 import ChecklistTemplates from './ChecklistTemplates'
+import PipelineSettings from './PipelineSettings'
 
 export default function CompanySettings({ onNavigate }) {
   const { companyId, profile, signOut } = useAuth()
@@ -223,6 +224,11 @@ export default function CompanySettings({ onNavigate }) {
         <button className="btn btn-primary btn-full" style={{ marginTop: 24 }} onClick={save} disabled={saving}>
           {saving ? 'Saving...' : 'Save Settings'}
         </button>
+
+        {/* Pipeline Settings */}
+        <div style={{ marginTop: 24 }}>
+          <PipelineSettings />
+        </div>
 
         {/* Checklist Templates */}
         <div style={{ marginTop: 24 }}>
