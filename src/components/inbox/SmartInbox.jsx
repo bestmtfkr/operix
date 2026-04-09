@@ -31,6 +31,8 @@ export default function SmartInbox() {
   const [sortMode, setSortMode] = useState('address') // 'address' or 'name'
   const [gmailConnected, setGmailConnected] = useState(false)
   const [gmailEmail, setGmailEmail] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [importProgress, setImportProgress] = useState({ done: 0, total: 0 })
 
   useEffect(() => {
     if (companyId) { loadEmails(); loadJobs(); loadClients(); checkGmail() }
@@ -165,6 +167,130 @@ export default function SmartInbox() {
       console.error(err)
     }
     setSyncing(false)
+  }
+
+  async function bulkImport() {
+    if (importing) return
+    if (!confirm('Import 6 months of email history? This may take a few minutes.')) return
+    setImporting(true)
+    setImportProgress({ done: 0, total: 0 })
+
+    let pageToken = null
+    let totalImported = 0
+    let totalEstimated = 0
+
+    // Get existing gmail IDs to skip duplicates
+    const { data: existingEmails } = await supabase.from('inbox_emails')
+      .select('metadata').eq('company_id', companyId)
+    const existingIds = new Set((existingEmails || []).map(e => e.metadata?.gmail_id).filter(Boolean))
+
+    do {
+      try {
+        const res = await fetch('/.netlify/functions/gmail-bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ company_id: companyId, page_token: pageToken, months_back: 6 })
+        })
+        const data = await res.json()
+
+        if (data.error) { showToast('Import error: ' + data.error); break }
+        if (!data.emails || data.emails.length === 0) break
+
+        totalEstimated = data.total_estimated || totalEstimated
+
+        // Filter out duplicates
+        const newEmails = data.emails.filter(e => !existingIds.has(e.gmail_id))
+
+        // Save in batch — no AI on bulk import, just store raw
+        for (const email of newEmails) {
+          // Check if thread already linked
+          let autoLinkedJobId = null
+          const threadLinked = emails.find(e =>
+            e.metadata?.thread_id === email.thread_id && e.metadata?.linked_job_id
+          )
+          if (threadLinked) autoLinkedJobId = threadLinked.metadata.linked_job_id
+
+          await supabase.from('inbox_emails').insert({
+            company_id: companyId,
+            from_address: email.from,
+            from_name: email.from.split('<')[0].trim(),
+            subject: email.subject,
+            body: email.body,
+            raw_text: `From: ${email.from}\nSubject: ${email.subject}\n\n${email.body}`,
+            categories: [],
+            priority: 'normal',
+            summary: email.snippet || '',
+            status: autoLinkedJobId ? 'actioned' : 'unread',
+            metadata: {
+              gmail_id: email.gmail_id,
+              thread_id: email.thread_id,
+              needs_full_analysis: true,
+              needs_categorize: true,
+              date: email.date,
+              linked_job_id: autoLinkedJobId
+            }
+          })
+          existingIds.add(email.gmail_id)
+          totalImported++
+        }
+
+        setImportProgress({ done: totalImported, total: totalEstimated })
+        pageToken = data.next_page_token
+      } catch (err) {
+        console.error('Bulk import error:', err)
+        showToast('Import error — will retry')
+        break
+      }
+    } while (pageToken)
+
+    setImporting(false)
+    showToast(`Imported ${totalImported} emails`)
+    loadEmails()
+
+    // Background categorize with Haiku
+    if (totalImported > 0) {
+      showToast('Categorizing imported emails...')
+      categorizeImportedEmails()
+    }
+  }
+
+  async function categorizeImportedEmails() {
+    const { data: uncategorized } = await supabase.from('inbox_emails')
+      .select('id, from_address, subject, body, metadata')
+      .eq('company_id', companyId)
+      .filter('metadata->needs_categorize', 'eq', true)
+      .limit(50)
+
+    if (!uncategorized || uncategorized.length === 0) return
+
+    for (const email of uncategorized) {
+      const quick = await categorizeEmail(`From: ${email.from_address}\nSubject: ${email.subject}\n\n${(email.body || '').slice(0, 500)}`)
+      if (quick) {
+        // Get current metadata and remove the flag
+        const { data: current } = await supabase.from('inbox_emails').select('metadata').eq('id', email.id).single()
+        const meta = { ...(current?.metadata || {}), needs_categorize: false, needs_full_analysis: true }
+        await supabase.from('inbox_emails').update({
+          categories: [quick.category].filter(Boolean),
+          priority: quick.priority || 'normal',
+          summary: quick.summary || '',
+          suggested_action: quick.suggested_action || 'none',
+          metadata: meta
+        }).eq('id', email.id)
+      }
+    }
+
+    // Check if more to categorize
+    const { count } = await supabase.from('inbox_emails')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .filter('metadata->needs_categorize', 'eq', true)
+
+    if (count > 0) {
+      setTimeout(() => categorizeImportedEmails(), 1000) // Process next batch
+    } else {
+      showToast('All emails categorized')
+      loadEmails()
+    }
   }
 
   async function loadEmails() {
@@ -467,12 +593,25 @@ Only return valid JSON.`, 256, 'haiku'
     showToast('Deleted'); setShowDetail(null); loadEmails()
   }
 
-  function timeAgo(iso) {
-    const diff = Date.now() - new Date(iso).getTime()
-    const m = Math.floor(diff / 60000)
-    if (m < 1) return 'Now'; if (m < 60) return m + 'm'
-    const h = Math.floor(m / 60); if (h < 24) return h + 'h'
-    return Math.floor(h / 24) + 'd'
+  function formatEmailDate(email) {
+    // Use Gmail date if available, otherwise created_at
+    const dateStr = email.metadata?.date || email.created_at
+    if (!dateStr) return ''
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return ''
+    const now = new Date()
+    const today = now.toISOString().split('T')[0]
+    const emailDate = d.toISOString().split('T')[0]
+    const time = d.toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' })
+
+    if (emailDate === today) return time
+    const yesterday = new Date(now - 86400000).toISOString().split('T')[0]
+    if (emailDate === yesterday) return 'Yesterday ' + time
+    // Same year
+    if (d.getFullYear() === now.getFullYear()) {
+      return d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) + ' ' + time
+    }
+    return d.toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
   }
 
   const unread = emails.filter(e => e.status === 'unread')
@@ -499,23 +638,53 @@ Only return valid JSON.`, 256, 'haiku'
       {/* Gmail Connection */}
       <div style={{ padding: '0 16px 8px' }}>
         {gmailConnected ? (
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            background: 'rgba(0,212,160,0.04)', border: '1px solid rgba(0,212,160,0.15)',
-            borderRadius: 14, padding: '10px 14px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 16 }}>✅</span>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)' }}>Gmail Connected — Auto-syncing</div>
-                <div style={{ fontSize: 11, color: 'var(--text3)' }}>{gmailEmail} · auto-syncing</div>
+          <div>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: 'rgba(0,212,160,0.04)', border: '1px solid rgba(0,212,160,0.15)',
+              borderRadius: 14, padding: '10px 14px', marginBottom: importing ? 8 : 0
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 16 }}>✅</span>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)' }}>Gmail Connected</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)' }}>{gmailEmail}</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={bulkImport} disabled={importing || syncing} style={{
+                  padding: '8px 12px', borderRadius: 10, fontSize: 11, fontWeight: 700,
+                  background: 'var(--card)', border: '1px solid var(--border)',
+                  color: 'var(--text2)', cursor: 'pointer', fontFamily: 'DM Sans'
+                }}>{importing ? '⏳' : '📥 Import'}</button>
+                <button onClick={() => fetchGmailEmails(false)} disabled={syncing || importing} style={{
+                  padding: '8px 12px', borderRadius: 10, fontSize: 11, fontWeight: 700,
+                  background: 'var(--card)', border: '1px solid var(--border)',
+                  color: 'var(--text2)', cursor: 'pointer', fontFamily: 'DM Sans'
+                }}>{syncing ? '⏳' : '🔄'}</button>
               </div>
             </div>
-            <button onClick={() => fetchGmailEmails(false)} disabled={syncing} style={{
-              padding: '8px 14px', borderRadius: 10, fontSize: 12, fontWeight: 700,
-              background: syncing ? 'var(--card2)' : 'var(--card)',
-              border: '1px solid var(--border)', color: syncing ? 'var(--text3)' : 'var(--text2)', cursor: 'pointer', fontFamily: 'DM Sans'
-            }}>{syncing ? '⏳ ...' : '🔄'}</button>
+            {importing && (
+              <div style={{
+                background: 'var(--card)', border: '1px solid rgba(0,212,160,0.15)',
+                borderRadius: 12, padding: '12px 14px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)' }}>Importing emails...</span>
+                  <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+                    {importProgress.done}{importProgress.total ? ` / ~${importProgress.total}` : ''}
+                  </span>
+                </div>
+                <div style={{ height: 4, background: 'var(--bg2)', borderRadius: 2, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', borderRadius: 2,
+                    background: 'linear-gradient(90deg, var(--primary), var(--primary2))',
+                    width: importProgress.total ? `${Math.min((importProgress.done / importProgress.total) * 100, 100)}%` : '30%',
+                    transition: 'width 0.3s'
+                  }} />
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <button onClick={connectGmail} style={{
@@ -642,7 +811,7 @@ Only return valid JSON.`, 256, 'haiku'
                     : (email.from_name || email.from_address || 'Unknown')
                   }
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--text3)', flexShrink: 0, marginLeft: 8 }}>{timeAgo(email.created_at)}</div>
+                <div style={{ fontSize: 10, color: 'var(--text3)', flexShrink: 0, marginLeft: 8 }}>{formatEmailDate(email)}</div>
               </div>
               {/* Secondary line — the other view */}
               <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 3 }}>
