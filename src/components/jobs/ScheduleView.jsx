@@ -17,6 +17,8 @@ export default function ScheduleView({ onJobClick }) {
   const [monthOffset, setMonthOffset] = useState(0)
   const [selectedDate, setSelectedDate] = useState(null)
   const [dragJob, setDragJob] = useState(null)
+  const [showTimeModal, setShowTimeModal] = useState(null) // { jobId, workerId, hour }
+  const [timeForm, setTimeForm] = useState({ start: '08:00', end: '17:00', fullDay: false })
 
   useEffect(() => { if (companyId) loadData() }, [companyId, monthOffset])
 
@@ -68,35 +70,43 @@ export default function ScheduleView({ onJobClick }) {
     return entries.filter(e => e.date === dateStr)
   }
 
-  // Drop job onto worker time slot
-  async function handleDrop(workerId, hour) {
+  // Drop job onto worker time slot — show time picker
+  function handleDrop(workerId, hour) {
     if (!dragJob || !selectedDate) return
+    setTimeForm({ start: `${String(hour).padStart(2, '0')}:00`, end: `${String(Math.min(hour + 2, 17)).padStart(2, '0')}:00`, fullDay: false })
+    setShowTimeModal({ jobId: dragJob.id, jobName: dragJob.name, workerId, hour })
+    setDragJob(null)
+  }
+
+  async function confirmSchedule() {
+    if (!showTimeModal || !selectedDate) return
+    const { jobId, workerId } = showTimeModal
+
+    const startTime = timeForm.fullDay ? '07:00' : timeForm.start
+    const endTime = timeForm.fullDay ? '17:00' : timeForm.end
 
     const { error } = await supabase.from('schedule_entries').insert({
-      company_id: companyId,
-      job_id: dragJob.id,
-      worker_id: workerId,
-      date: selectedDate,
-      start_time: `${String(hour).padStart(2, '0')}:00`,
-      end_time: `${String(hour + 2).padStart(2, '0')}:00`
+      company_id: companyId, job_id: jobId, worker_id: workerId,
+      date: selectedDate, start_time: startTime, end_time: endTime
     })
 
     if (error) { showToast('Error scheduling'); console.error(error); return }
 
-    // Also assign worker to job if not already
+    // Assign worker
     const { data: existing } = await supabase.from('job_workers')
-      .select('id').eq('job_id', dragJob.id).eq('worker_id', workerId).is('removed_at', null)
+      .select('id').eq('job_id', jobId).eq('worker_id', workerId).is('removed_at', null)
     if (!existing?.length) {
-      await supabase.from('job_workers').insert({ company_id: companyId, job_id: dragJob.id, worker_id: workerId, role_on_job: 'crew' })
+      await supabase.from('job_workers').insert({ company_id: companyId, job_id: jobId, worker_id: workerId, role_on_job: 'crew' })
     }
 
     // Move to active if lead
-    if (dragJob.stage === 'lead') {
-      await supabase.from('jobs').update({ stage: 'active', stage_changed_at: new Date().toISOString() }).eq('id', dragJob.id)
+    const job = allJobs.find(j => j.id === jobId)
+    if (job?.stage === 'lead') {
+      await supabase.from('jobs').update({ stage: 'active', stage_changed_at: new Date().toISOString() }).eq('id', jobId)
     }
 
-    showToast(`Scheduled ${dragJob.name}`)
-    setDragJob(null)
+    showToast(`Scheduled ${showTimeModal.jobName}`)
+    setShowTimeModal(null)
     loadData()
   }
 
@@ -311,6 +321,62 @@ export default function ScheduleView({ onJobClick }) {
           </div>
         )}
       </div>
+
+      {/* Time picker modal */}
+      {showTimeModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.7)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16
+        }} onClick={() => setShowTimeModal(null)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: 'var(--card)', border: '1px solid var(--border2)',
+            borderRadius: 20, padding: 24, width: '100%', maxWidth: 340
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>Schedule Job</div>
+            <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>{showTimeModal.jobName}</div>
+
+            {/* Full day toggle */}
+            <label style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
+              background: timeForm.fullDay ? 'rgba(0,212,160,0.06)' : 'var(--bg2)',
+              border: `1px solid ${timeForm.fullDay ? 'rgba(0,212,160,0.2)' : 'var(--border)'}`,
+              borderRadius: 12, marginBottom: 12, cursor: 'pointer'
+            }}>
+              <input type="checkbox" checked={timeForm.fullDay}
+                onChange={e => setTimeForm(f => ({ ...f, fullDay: e.target.checked }))}
+                style={{ width: 18, height: 18, accentColor: 'var(--primary)' }} />
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: timeForm.fullDay ? 'var(--primary)' : 'var(--text)' }}>Full Day</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)' }}>7:00 AM — 5:00 PM</div>
+              </div>
+            </label>
+
+            {!timeForm.fullDay && (
+              <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <label className="form-label">Start Time</label>
+                  <input type="time" className="form-input" value={timeForm.start}
+                    onChange={e => setTimeForm(f => ({ ...f, start: e.target.value }))} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label className="form-label">End Time</label>
+                  <input type="time" className="form-input" value={timeForm.end}
+                    onChange={e => setTimeForm(f => ({ ...f, end: e.target.value }))} />
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={confirmSchedule} className="btn btn-primary" style={{ flex: 1, padding: 13 }}>
+                Schedule
+              </button>
+              <button onClick={() => setShowTimeModal(null)} className="btn btn-secondary" style={{ padding: '13px 16px' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
