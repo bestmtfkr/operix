@@ -6,6 +6,8 @@ import Modal from '../shared/Modal'
 import { STAGE_LABELS, STAGE_COLORS, JOB_STAGES, PRIORITY_LABELS, PRIORITY_COLORS, JOB_TYPE_LABELS, JOB_TYPES, PRIORITIES } from '../../lib/constants'
 import FileUpload from '../shared/FileUpload'
 import JobChecklist from './JobChecklist'
+import JobClockInOut from './JobClockInOut'
+import JobCostSummary from './JobCostSummary'
 
 export default function JobDetail({ jobId, onBack }) {
   const { companyId, profile } = useAuth()
@@ -268,6 +270,8 @@ export default function JobDetail({ jobId, onBack }) {
     { id: 'tasks', label: `Tasks (${tasks.length})` },
     { id: 'time', label: `Time (${timeEntries.length})` },
     { id: 'billing', label: `Billing (${invoices.length})` },
+    { id: 'clock', label: 'Clock In/Out' },
+    { id: 'costs', label: 'Costs' },
     { id: 'checklist', label: `Checklist (${(job.checklist || []).filter(i => i.done).length}/${(job.checklist || []).length})` },
     { id: 'activity', label: 'Activity' },
   ]
@@ -507,6 +511,14 @@ export default function JobDetail({ jobId, onBack }) {
         )}
 
         {/* BILLING */}
+        {activeSection === 'clock' && (
+          <JobClockInOut jobId={jobId} onUpdate={loadAll} />
+        )}
+
+        {activeSection === 'costs' && (
+          <JobCostSummary jobId={jobId} />
+        )}
+
         {activeSection === 'checklist' && (
           <JobChecklist jobId={jobId} checklist={job.checklist || []} onUpdate={() => loadAll()} />
         )}
