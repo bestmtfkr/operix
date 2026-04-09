@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../shared/Toast'
@@ -17,7 +17,8 @@ export default function ScheduleView({ onJobClick }) {
   const [monthOffset, setMonthOffset] = useState(0)
   const [selectedDate, setSelectedDate] = useState(null)
   const [dragJob, setDragJob] = useState(null)
-  const [showTimeModal, setShowTimeModal] = useState(null) // { jobId, workerId, hour }
+  const dragJobRef = useRef(null)
+  const [showTimeModal, setShowTimeModal] = useState(null)
   const [timeForm, setTimeForm] = useState({ start: '08:00', end: '17:00', fullDay: false })
 
   useEffect(() => { if (companyId) loadData() }, [companyId, monthOffset])
@@ -72,10 +73,12 @@ export default function ScheduleView({ onJobClick }) {
 
   // Drop job onto worker time slot — show time picker
   function handleDrop(workerId, hour) {
-    if (!dragJob || !selectedDate) return
+    const job = dragJobRef.current
+    if (!job || !selectedDate) return
     setTimeForm({ start: `${String(hour).padStart(2, '0')}:00`, end: `${String(Math.min(hour + 2, 17)).padStart(2, '0')}:00`, fullDay: false })
-    setShowTimeModal({ jobId: dragJob.id, jobName: dragJob.name, workerId, hour })
+    setShowTimeModal({ jobId: job.id, jobName: job.name, workerId, hour })
     setDragJob(null)
+    dragJobRef.current = null
   }
 
   async function confirmSchedule() {
@@ -158,7 +161,7 @@ export default function ScheduleView({ onJobClick }) {
             <div style={{ flex: 1, overflow: 'auto', padding: 6 }}>
               {/* All active jobs — not just unscheduled, since same job can go on multiple days */}
               {allJobs.filter(j => ['lead', 'quoted', 'active'].includes(j.stage)).map(job => (
-                <div key={job.id} draggable onDragStart={() => setDragJob(job)} onDragEnd={() => setDragJob(null)}
+                <div key={job.id} draggable onDragStart={() => { setDragJob(job); dragJobRef.current = job }} onDragEnd={() => setDragJob(null)}
                   onClick={() => onJobClick && onJobClick(job.id)}
                   style={{
                     background: 'var(--card)', border: '1px solid var(--border)',
