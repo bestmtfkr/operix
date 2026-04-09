@@ -30,6 +30,7 @@ export default function SmartInbox() {
   const [filter, setFilter] = useState('all')
   const [sortMode, setSortMode] = useState('address') // 'address' or 'name'
   const [emailSort, setEmailSort] = useState('newest')
+  const [emailSearch, setEmailSearch] = useState('')
   const [gmailConnected, setGmailConnected] = useState(false)
   const [gmailEmail, setGmailEmail] = useState('')
   const [importing, setImporting] = useState(false)
@@ -678,6 +679,18 @@ Only return valid JSON.`, 256, 'haiku'
     filter === 'unread' ? unread :
     emails.filter(e => (e.categories || []).includes(filter))
 
+  // Apply search
+  if (emailSearch.trim()) {
+    const q = emailSearch.toLowerCase()
+    displayEmails = displayEmails.filter(e =>
+      (e.from_name || '').toLowerCase().includes(q) ||
+      (e.from_address || '').toLowerCase().includes(q) ||
+      (e.subject || '').toLowerCase().includes(q) ||
+      (e.summary || '').toLowerCase().includes(q) ||
+      (e.body || '').toLowerCase().includes(q)
+    )
+  }
+
   // Apply sort
   const priOrder = { urgent: 0, high: 1, normal: 2, low: 3 }
   displayEmails = [...displayEmails].sort((a, b) => {
@@ -809,6 +822,12 @@ Only return valid JSON.`, 256, 'haiku'
             color: tab === t.id ? 'var(--primary)' : 'var(--text2)'
           }}>{t.label}</button>
         ))}
+      </div>
+
+      {/* Search */}
+      <div className="search-bar">
+        <span className="search-icon">🔍</span>
+        <input placeholder="Search emails..." value={emailSearch} onChange={e => setEmailSearch(e.target.value)} />
       </div>
 
       {/* Sort + View + Category filters */}
