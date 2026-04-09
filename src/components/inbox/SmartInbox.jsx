@@ -1163,6 +1163,9 @@ Only return valid JSON.`, 256, 'haiku'
                 <option value="lead">Lead</option>
                 <option value="quoted">Quoted</option>
                 <option value="active">Active</option>
+                <option value="completed">Completed</option>
+                <option value="invoiced">Invoiced</option>
+                <option value="closed">Closed</option>
               </select>
             </div>
             <div className="form-field">
