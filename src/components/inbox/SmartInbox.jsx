@@ -693,7 +693,7 @@ Only return valid JSON.`, 256, 'haiku'
       <div className="page-header">
         <div>
           <div className="page-title">AI Smart Inbox</div>
-          <div className="page-subtitle">{totalEmails} emails · {unread.length} unread · {suggestions.length} need sorting</div>
+          <div className="page-subtitle">{totalEmails.toLocaleString()} emails · Page {emailPage + 1} of {Math.ceil(totalEmails / PAGE_SIZE)}</div>
         </div>
       </div>
 
