@@ -164,6 +164,13 @@ export default function WorkersList({ hideHeader }) {
                         ${w.hourly_rate}/hr
                       </span>
                     )}
+                    {w.phone && (
+                      <a href={`https://wa.me/${w.phone.replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener"
+                        onClick={e => e.stopPropagation()}
+                        style={{ fontSize: 10, color: '#25D366', fontWeight: 700, textDecoration: 'none' }}>
+                        💬
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>

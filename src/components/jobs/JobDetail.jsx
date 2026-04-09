@@ -29,7 +29,7 @@ export default function JobDetail({ jobId, onBack }) {
   async function loadAll() {
     const [jobRes, workersRes, allWRes, timeRes, tasksRes, invRes, actRes] = await Promise.all([
       supabase.from('jobs').select('*, clients(name, contact_phone, contact_email)').eq('id', jobId).single(),
-      supabase.from('job_workers').select('*, workers(first_name, last_name, role, hourly_rate)').eq('job_id', jobId).is('removed_at', null),
+      supabase.from('job_workers').select('*, workers(first_name, last_name, role, hourly_rate, phone)').eq('job_id', jobId).is('removed_at', null),
       supabase.from('workers').select('id, first_name, last_name, role').eq('company_id', companyId).is('archived_at', null),
       supabase.from('time_entries').select('*, workers(first_name, last_name)').eq('job_id', jobId).order('date', { ascending: false }),
       supabase.from('tasks').select('*').eq('job_id', jobId).order('sort_order'),
@@ -394,11 +394,21 @@ export default function JobDetail({ jobId, onBack }) {
                     <div style={{ fontSize: 11, color: 'var(--text3)' }}>{aw.role_on_job} · {aw.workers?.role}</div>
                   </div>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); removeWorker(aw.id) }} style={{
-                  background: 'rgba(255,59,92,0.08)', border: '1px solid rgba(255,59,92,0.2)',
-                  borderRadius: 8, padding: '4px 10px', color: 'var(--red)', fontSize: 11,
-                  fontWeight: 700, cursor: 'pointer', fontFamily: 'DM Sans'
-                }}>Remove</button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {aw.workers?.phone && (
+                    <a href={`https://wa.me/${aw.workers.phone.replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener"
+                      onClick={e => e.stopPropagation()} style={{
+                        background: 'rgba(37,211,102,0.08)', border: '1px solid rgba(37,211,102,0.2)',
+                        borderRadius: 8, padding: '4px 10px', color: '#25D366', fontSize: 11,
+                        fontWeight: 700, textDecoration: 'none', display: 'flex', alignItems: 'center'
+                      }}>💬</a>
+                  )}
+                  <button onClick={(e) => { e.stopPropagation(); removeWorker(aw.id) }} style={{
+                    background: 'rgba(255,59,92,0.08)', border: '1px solid rgba(255,59,92,0.2)',
+                    borderRadius: 8, padding: '4px 10px', color: 'var(--red)', fontSize: 11,
+                    fontWeight: 700, cursor: 'pointer', fontFamily: 'DM Sans'
+                  }}>Remove</button>
+                </div>
               </div>
             ))}
             <select className="form-input" value="" onChange={e => { if (e.target.value) assignWorker(e.target.value) }}

@@ -145,6 +145,12 @@ export default function ClientDetail({ clientId, onBack, onOpenJob }) {
               ✉️ Email
             </a>
           )}
+          {client.contact_phone && (
+            <a href={`https://wa.me/${client.contact_phone.replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener"
+              className="btn btn-secondary" style={{ flex: 1, textDecoration: 'none', background: 'rgba(37,211,102,0.08)', borderColor: 'rgba(37,211,102,0.2)', color: '#25D366' }}>
+              💬 WhatsApp
+            </a>
+          )}
         </div>
       )}
 
