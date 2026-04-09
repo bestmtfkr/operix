@@ -167,8 +167,13 @@ export default function WorkersList({ hideHeader }) {
                     {w.phone && (
                       <a href={`https://wa.me/${w.phone.replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener"
                         onClick={e => e.stopPropagation()}
-                        style={{ fontSize: 10, color: '#25D366', fontWeight: 700, textDecoration: 'none' }}>
-                        💬
+                        style={{
+                          padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                          background: 'rgba(37,211,102,0.1)', border: '1px solid rgba(37,211,102,0.2)',
+                          color: '#25D366', textDecoration: 'none', display: 'inline-flex',
+                          alignItems: 'center', gap: 4
+                        }}>
+                        💬 WhatsApp
                       </a>
                     )}
                   </div>
