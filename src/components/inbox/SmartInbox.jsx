@@ -29,6 +29,7 @@ export default function SmartInbox() {
   const [tab, setTab] = useState('inbox') // inbox, suggestions, linked
   const [filter, setFilter] = useState('all')
   const [sortMode, setSortMode] = useState('address') // 'address' or 'name'
+  const [emailSort, setEmailSort] = useState('newest')
   const [gmailConnected, setGmailConnected] = useState(false)
   const [gmailEmail, setGmailEmail] = useState('')
   const [importing, setImporting] = useState(false)
@@ -655,11 +656,23 @@ Only return valid JSON.`, 256, 'haiku'
   const suggestions = emails.filter(e => e.status !== 'actioned' && !e.metadata?.linked_job_id)
   const linked = emails.filter(e => e.metadata?.linked_job_id)
 
-  const displayEmails = tab === 'suggestions' ? suggestions :
+  let displayEmails = tab === 'suggestions' ? suggestions :
     tab === 'linked' ? linked :
     filter === 'all' ? emails :
     filter === 'unread' ? unread :
     emails.filter(e => (e.categories || []).includes(filter))
+
+  // Apply sort
+  const priOrder = { urgent: 0, high: 1, normal: 2, low: 3 }
+  displayEmails = [...displayEmails].sort((a, b) => {
+    if (emailSort === 'newest') return new Date(b.metadata?.date || b.created_at) - new Date(a.metadata?.date || a.created_at)
+    if (emailSort === 'oldest') return new Date(a.metadata?.date || a.created_at) - new Date(b.metadata?.date || b.created_at)
+    if (emailSort === 'name_az') return (a.from_name || a.from_address || '').localeCompare(b.from_name || b.from_address || '')
+    if (emailSort === 'name_za') return (b.from_name || b.from_address || '').localeCompare(a.from_name || a.from_address || '')
+    if (emailSort === 'unread') return (a.status === 'unread' ? 0 : 1) - (b.status === 'unread' ? 0 : 1)
+    if (emailSort === 'priority') return (priOrder[a.priority] || 2) - (priOrder[b.priority] || 2)
+    return 0
+  })
 
   if (loading) return <div className="loading-center"><div className="spinner" /></div>
 
@@ -782,36 +795,51 @@ Only return valid JSON.`, 256, 'haiku'
         ))}
       </div>
 
-      {/* Sort mode toggle */}
-      <div style={{ display: 'flex', gap: 0, margin: '0 16px 8px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-        <button onClick={() => setSortMode('address')} style={{
-          flex: 1, padding: '8px 12px', fontSize: 11, fontWeight: 700,
-          border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
-          background: sortMode === 'address' ? 'rgba(0,212,160,0.1)' : 'transparent',
-          color: sortMode === 'address' ? 'var(--primary)' : 'var(--text3)'
-        }}>📍 By Address</button>
-        <button onClick={() => setSortMode('name')} style={{
-          flex: 1, padding: '8px 12px', fontSize: 11, fontWeight: 700,
-          border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
-          background: sortMode === 'name' ? 'rgba(0,212,160,0.1)' : 'transparent',
-          color: sortMode === 'name' ? 'var(--primary)' : 'var(--text3)'
-        }}>👤 By Name</button>
-      </div>
+      {/* Sort + View + Category filters */}
+      <div style={{ display: 'flex', gap: 8, padding: '0 16px 8px', alignItems: 'center' }}>
+        {/* View mode */}
+        <div style={{ display: 'flex', gap: 0, background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', flexShrink: 0 }}>
+          <button onClick={() => setSortMode('address')} style={{
+            padding: '6px 10px', fontSize: 10, fontWeight: 700,
+            border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
+            background: sortMode === 'address' ? 'rgba(0,212,160,0.1)' : 'transparent',
+            color: sortMode === 'address' ? 'var(--primary)' : 'var(--text3)'
+          }}>📍</button>
+          <button onClick={() => setSortMode('name')} style={{
+            padding: '6px 10px', fontSize: 10, fontWeight: 700,
+            border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
+            background: sortMode === 'name' ? 'rgba(0,212,160,0.1)' : 'transparent',
+            color: sortMode === 'name' ? 'var(--primary)' : 'var(--text3)'
+          }}>👤</button>
+        </div>
 
-      {/* Category filters (inbox tab only) */}
-      {tab === 'inbox' && (
-        <div style={{ display: 'flex', gap: 6, padding: '0 16px 8px', overflowX: 'auto', scrollbarWidth: 'none' }}>
+        {/* Sort order */}
+        <select value={emailSort} onChange={e => setEmailSort(e.target.value)} style={{
+          background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8,
+          padding: '6px 8px', fontSize: 10, color: 'var(--text2)', outline: 'none',
+          fontFamily: 'DM Sans', cursor: 'pointer', flexShrink: 0
+        }}>
+          <option value="newest">Newest</option>
+          <option value="oldest">Oldest</option>
+          <option value="name_az">Name A-Z</option>
+          <option value="name_za">Name Z-A</option>
+          <option value="unread">Unread first</option>
+          <option value="priority">Priority</option>
+        </select>
+
+        {/* Category filters — scrollable */}
+        <div style={{ display: 'flex', gap: 4, overflowX: 'auto', scrollbarWidth: 'none', flex: 1 }}>
           {['all', 'unread', 'insurance', 'client', 'supplier', 'urgent'].map(f => (
             <div key={f} onClick={() => setFilter(f)} style={{
-              padding: '5px 10px', borderRadius: 8, fontSize: 10, fontWeight: 700,
+              padding: '5px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700,
               cursor: 'pointer', whiteSpace: 'nowrap',
               border: `1px solid ${filter === f ? 'rgba(0,212,160,0.3)' : 'var(--border)'}`,
               background: filter === f ? 'rgba(0,212,160,0.1)' : 'var(--card)',
-              color: filter === f ? 'var(--primary)' : 'var(--text2)'
+              color: filter === f ? 'var(--primary)' : 'var(--text3)'
             }}>{f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}</div>
           ))}
         </div>
-      )}
+      </div>
 
       {/* Email List */}
       <div className="sec">
