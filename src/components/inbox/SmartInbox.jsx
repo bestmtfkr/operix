@@ -689,7 +689,7 @@ Only return valid JSON.`, 256, 'haiku'
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={bulkImport} disabled={importing || syncing} style={{
+                <button onClick={() => { console.log('IMPORT CLICKED'); bulkImport() }} disabled={importing} style={{
                   padding: '8px 12px', borderRadius: 10, fontSize: 11, fontWeight: 700,
                   background: 'var(--card)', border: '1px solid var(--border)',
                   color: 'var(--text2)', cursor: 'pointer', fontFamily: 'DM Sans'
