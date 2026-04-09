@@ -28,6 +28,7 @@ export default function SmartInbox() {
   const [inputText, setInputText] = useState('')
   const [tab, setTab] = useState('inbox') // inbox, suggestions, linked
   const [filter, setFilter] = useState('all')
+  const [sortMode, setSortMode] = useState('address') // 'address' or 'name'
   const [gmailConnected, setGmailConnected] = useState(false)
   const [gmailEmail, setGmailEmail] = useState('')
 
@@ -526,6 +527,22 @@ Only return valid JSON.`
         ))}
       </div>
 
+      {/* Sort mode toggle */}
+      <div style={{ display: 'flex', gap: 0, margin: '0 16px 8px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+        <button onClick={() => setSortMode('address')} style={{
+          flex: 1, padding: '8px 12px', fontSize: 11, fontWeight: 700,
+          border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
+          background: sortMode === 'address' ? 'rgba(0,212,160,0.1)' : 'transparent',
+          color: sortMode === 'address' ? 'var(--primary)' : 'var(--text3)'
+        }}>📍 By Address</button>
+        <button onClick={() => setSortMode('name')} style={{
+          flex: 1, padding: '8px 12px', fontSize: 11, fontWeight: 700,
+          border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
+          background: sortMode === 'name' ? 'rgba(0,212,160,0.1)' : 'transparent',
+          color: sortMode === 'name' ? 'var(--primary)' : 'var(--text3)'
+        }}>👤 By Name</button>
+      </div>
+
       {/* Category filters (inbox tab only) */}
       {tab === 'inbox' && (
         <div style={{ display: 'flex', gap: 6, padding: '0 16px 8px', overflowX: 'auto', scrollbarWidth: 'none' }}>
@@ -566,11 +583,24 @@ Only return valid JSON.`
                 isLinked ? '3px solid var(--blue)' : '3px solid transparent',
               position: 'relative', zIndex: 1, cursor: 'pointer'
             }}>
+              {/* Primary line — address or name based on sort mode */}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <div style={{ fontSize: 13, fontWeight: email.status === 'unread' ? 800 : 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {email.from_name || email.from_address || 'Unknown'}
+                  {sortMode === 'address'
+                    ? (email.metadata?.extracted_data?.address || email.metadata?.extracted_data?.unit_numbers
+                        ? `📍 ${email.metadata?.extracted_data?.address || ''}${email.metadata?.extracted_data?.unit_numbers ? ' · Unit ' + email.metadata.extracted_data.unit_numbers : ''}`
+                        : email.subject)
+                    : (email.from_name || email.from_address || 'Unknown')
+                  }
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--text3)', flexShrink: 0, marginLeft: 8 }}>{timeAgo(email.created_at)}</div>
+              </div>
+              {/* Secondary line — the other view */}
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 3 }}>
+                {sortMode === 'address'
+                  ? (email.from_name || email.from_address || '')
+                  : (email.metadata?.extracted_data?.address ? '📍 ' + email.metadata.extracted_data.address : '')
+                }
               </div>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email.subject}</div>
               <div style={{ fontSize: 11, color: 'var(--text2)', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{email.summary}</div>

@@ -21,7 +21,7 @@ export default function ClientsList() {
   const [form, setForm] = useState({
     name: '', type: 'commercial', contact_name: '', contact_email: '',
     contact_phone: '', billing_address_line1: '', billing_city: '',
-    billing_province_state: '', billing_postal_zip: '', notes: ''
+    billing_province_state: '', billing_postal_zip: '', notes: '', is_large: false
   })
 
   useEffect(() => { if (companyId) loadClients() }, [companyId])
@@ -69,7 +69,8 @@ export default function ClientsList() {
       billing_city: client.billing_city || '',
       billing_province_state: client.billing_province_state || '',
       billing_postal_zip: client.billing_postal_zip || '',
-      notes: client.notes || ''
+      notes: client.notes || '',
+      is_large: (client.tags || []).includes('large')
     })
     setShowModal(true)
   }
@@ -77,7 +78,8 @@ export default function ClientsList() {
   async function saveClient() {
     if (!form.name.trim()) { showToast('Please enter a client name'); return }
 
-    const payload = { ...form, company_id: companyId }
+    const { is_large, ...formData } = form
+    const payload = { ...formData, tags: is_large ? ['large'] : [], company_id: companyId }
     let error
 
     if (editing) {
@@ -163,6 +165,9 @@ export default function ClientsList() {
                     <span className={`badge ${client.type === 'insurance' ? 'purple' : client.type === 'residential' ? 'blue' : 'green'}`}>
                       {client.type.toUpperCase()}
                     </span>
+                    {(client.tags || []).includes('large') && (
+                      <span className="badge yellow">⭐ LARGE</span>
+                    )}
                     {client.contact_phone && (
                       <span style={{ fontSize: 11, color: 'var(--text3)' }}>{client.contact_phone}</span>
                     )}
@@ -195,6 +200,20 @@ export default function ClientsList() {
               <option value="insurance">Insurance</option>
               <option value="government">Government</option>
             </select>
+          </div>
+
+          {/* Client tag */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+            background: form.is_large ? 'rgba(255,184,0,0.06)' : 'var(--bg2)',
+            border: `1px solid ${form.is_large ? 'rgba(255,184,0,0.2)' : 'var(--border)'}`,
+            borderRadius: 12, marginBottom: 16, cursor: 'pointer'
+          }} onClick={() => updateForm('is_large', !form.is_large)}>
+            <input type="checkbox" checked={form.is_large || false} readOnly />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: form.is_large ? 'var(--yellow)' : 'var(--text2)' }}>⭐ Large Client</div>
+              <div style={{ fontSize: 10, color: 'var(--text3)' }}>Property management, multiple locations, high volume</div>
+            </div>
           </div>
 
           <div className="form-row">
