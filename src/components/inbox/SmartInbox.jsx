@@ -312,6 +312,26 @@ export default function SmartInbox() {
   const [totalEmails, setTotalEmails] = useState(0)
   const PAGE_SIZE = 50
 
+  const [searchResults, setSearchResults] = useState(null) // null = not searching
+
+  // Debounced search
+  useEffect(() => {
+    if (!emailSearch.trim()) { setSearchResults(null); return }
+    const timer = setTimeout(() => searchEmails(emailSearch.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [emailSearch])
+
+  async function searchEmails(query) {
+    const like = `%${query}%`
+    const { data } = await supabase.from('inbox_emails')
+      .select('*')
+      .eq('company_id', companyId)
+      .or(`from_name.ilike.${like},from_address.ilike.${like},subject.ilike.${like},summary.ilike.${like}`)
+      .order('created_at', { ascending: false })
+      .limit(100)
+    setSearchResults(data || [])
+  }
+
   async function loadEmails(page = 0) {
     const from = page * PAGE_SIZE
     const to = from + PAGE_SIZE - 1
@@ -673,23 +693,15 @@ Only return valid JSON.`, 256, 'haiku'
   const suggestions = emails.filter(e => e.status !== 'actioned' && !e.metadata?.linked_job_id)
   const linked = emails.filter(e => e.metadata?.linked_job_id)
 
-  let displayEmails = tab === 'suggestions' ? suggestions :
+  // If searching, use search results instead of paginated list
+  let displayEmails = searchResults ? searchResults :
+    tab === 'suggestions' ? suggestions :
     tab === 'linked' ? linked :
     filter === 'all' ? emails :
     filter === 'unread' ? unread :
     emails.filter(e => (e.categories || []).includes(filter))
 
-  // Apply search
-  if (emailSearch.trim()) {
-    const q = emailSearch.toLowerCase()
-    displayEmails = displayEmails.filter(e =>
-      (e.from_name || '').toLowerCase().includes(q) ||
-      (e.from_address || '').toLowerCase().includes(q) ||
-      (e.subject || '').toLowerCase().includes(q) ||
-      (e.summary || '').toLowerCase().includes(q) ||
-      (e.body || '').toLowerCase().includes(q)
-    )
-  }
+  // Search is handled by searchEmails — don't filter here
 
   // Apply sort
   const priOrder = { urgent: 0, high: 1, normal: 2, low: 3 }
