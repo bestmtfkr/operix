@@ -172,7 +172,7 @@ export default function SmartInbox() {
 
   async function bulkImport() {
     if (importing) return
-    if (!confirm('Import 6 months of email history? This may take a few minutes.')) return
+    showToast('Starting email import...')
     setImporting(true)
     setImportProgress({ done: 0, total: 0 })
 
@@ -192,10 +192,21 @@ export default function SmartInbox() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ company_id: companyId, page_token: pageToken, months_back: 6 })
         })
+
+        if (!res.ok) {
+          const errText = await res.text()
+          console.error('Bulk fetch error:', res.status, errText)
+          showToast('Import failed: ' + res.status)
+          break
+        }
+
         const data = await res.json()
 
         if (data.error) { showToast('Import error: ' + data.error); break }
-        if (!data.emails || data.emails.length === 0) break
+        if (!data.emails || data.emails.length === 0) {
+          showToast('No more emails to import')
+          break
+        }
 
         totalEstimated = data.total_estimated || totalEstimated
 
