@@ -614,12 +614,16 @@ Only return valid JSON.`, 256, 'haiku'
           filename: attachment.filename
         })
       })
-      const data = await res.json()
-      if (data.url) {
-        window.open(data.url, '_blank')
-      } else {
-        showToast('Download failed')
-      }
+      if (!res.ok) { showToast('Download failed'); return }
+      // Create download link from response
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = attachment.filename
+      a.click()
+      URL.revokeObjectURL(url)
+      showToast('Downloaded ' + attachment.filename)
     } catch (err) {
       showToast('Download error')
     }

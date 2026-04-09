@@ -54,28 +54,16 @@ export default async (req) => {
       return new Response(JSON.stringify({ error: 'Attachment not found' }), { status: 404 })
     }
 
-    // Upload to Supabase Storage
+    // Return file directly as download — no storage needed
     const fileData = Buffer.from(attData.data, 'base64url')
-    const path = `${company_id}/email-attachments/${gmail_id}/${filename || 'attachment'}`
+    const mimeType = attData.mimeType || 'application/octet-stream'
 
-    const { error: uploadErr } = await supabaseAdmin.storage
-      .from('documents')
-      .upload(path, fileData, { contentType: 'application/octet-stream', upsert: true })
-
-    if (uploadErr) {
-      return new Response(JSON.stringify({ error: 'Upload failed' }), { status: 500 })
-    }
-
-    // Generate signed URL
-    const { data: urlData } = await supabaseAdmin.storage
-      .from('documents')
-      .createSignedUrl(path, 3600)
-
-    return new Response(JSON.stringify({
-      url: urlData?.signedUrl || null,
-      path,
-      filename
-    }), { headers: { 'Content-Type': 'application/json' } })
+    return new Response(fileData, {
+      headers: {
+        'Content-Type': mimeType,
+        'Content-Disposition': `attachment; filename="${filename || 'attachment'}"`,
+      }
+    })
 
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), { status: 500 })
