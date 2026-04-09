@@ -10,7 +10,7 @@ const TABS = [
   { id: 'dashboard', icon: '📊', label: 'Home', module: 'dashboard' },
   { id: 'jobs', icon: '📋', label: 'Jobs', module: 'jobs' },
   { id: 'inbox', icon: '📬', label: 'Inbox', module: 'dashboard' },
-  { id: 'billing', icon: '💰', label: 'Billing', module: 'billing' },
+  { id: 'billing', icon: '📄', label: 'Billing', module: 'billing' },
   { id: 'team', icon: '👷', label: 'Team', module: 'team' },
 ]
 
