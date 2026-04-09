@@ -8,7 +8,13 @@ export default function CalendarView({ onJobClick }) {
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
   const [offset, setOffset] = useState(0)
-  const [mode, setMode] = useState('week') // 'week' or 'month'
+  const [mode, setMode] = useState(localStorage.getItem('operix_cal_mode') || 'week')
+
+  function switchMode(m) {
+    setMode(m)
+    localStorage.setItem('operix_cal_mode', m)
+    setOffset(0)
+  }
 
   useEffect(() => { if (companyId) loadJobs() }, [companyId, offset, mode])
 
@@ -127,12 +133,12 @@ export default function CalendarView({ onJobClick }) {
         )}
         {/* Mode toggle */}
         <div style={{ display: 'flex', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-          <button onClick={() => { setMode('week'); setOffset(0) }} style={{
+          <button onClick={() => switchMode('week')} style={{
             padding: '5px 10px', fontSize: 10, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
             background: mode === 'week' ? 'rgba(0,212,160,0.1)' : 'transparent',
             color: mode === 'week' ? 'var(--primary)' : 'var(--text3)'
           }}>Week</button>
-          <button onClick={() => { setMode('month'); setOffset(0) }} style={{
+          <button onClick={() => switchMode('month')} style={{
             padding: '5px 10px', fontSize: 10, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
             background: mode === 'month' ? 'rgba(0,212,160,0.1)' : 'transparent',
             color: mode === 'month' ? 'var(--primary)' : 'var(--text3)'
