@@ -307,13 +307,25 @@ export default function SmartInbox() {
     }
   }
 
-  async function loadEmails() {
-    const { data } = await supabase.from('inbox_emails')
-      .select('*')
-      .eq('company_id', companyId)
-      .order('created_at', { ascending: false })
-      .limit(100)
+  const [emailPage, setEmailPage] = useState(0)
+  const [totalEmails, setTotalEmails] = useState(0)
+  const PAGE_SIZE = 50
+
+  async function loadEmails(page = 0) {
+    const from = page * PAGE_SIZE
+    const to = from + PAGE_SIZE - 1
+
+    const [{ data, count }, ] = await Promise.all([
+      supabase.from('inbox_emails')
+        .select('*', { count: 'exact' })
+        .eq('company_id', companyId)
+        .order('created_at', { ascending: false })
+        .range(from, to),
+    ])
+
     setEmails(data || [])
+    setTotalEmails(count || 0)
+    setEmailPage(page)
     setLoading(false)
   }
 
@@ -681,7 +693,7 @@ Only return valid JSON.`, 256, 'haiku'
       <div className="page-header">
         <div>
           <div className="page-title">AI Smart Inbox</div>
-          <div className="page-subtitle">{unread.length} unread · {suggestions.length} need sorting</div>
+          <div className="page-subtitle">{totalEmails} emails · {unread.length} unread · {suggestions.length} need sorting</div>
         </div>
       </div>
 
@@ -897,6 +909,31 @@ Only return valid JSON.`, 256, 'haiku'
             </div>
           )
         })}
+
+        {/* Pagination */}
+        {totalEmails > PAGE_SIZE && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: 12, padding: '16px 0'
+          }}>
+            <button onClick={() => loadEmails(emailPage - 1)} disabled={emailPage === 0} style={{
+              padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700,
+              background: emailPage === 0 ? 'var(--card)' : 'var(--card2)',
+              border: '1px solid var(--border)', color: emailPage === 0 ? 'var(--text3)' : 'var(--text2)',
+              cursor: emailPage === 0 ? 'default' : 'pointer', fontFamily: 'DM Sans'
+            }}>← Prev</button>
+            <span style={{ fontSize: 12, color: 'var(--text3)' }}>
+              {emailPage * PAGE_SIZE + 1}–{Math.min((emailPage + 1) * PAGE_SIZE, totalEmails)} of {totalEmails}
+            </span>
+            <button onClick={() => loadEmails(emailPage + 1)} disabled={(emailPage + 1) * PAGE_SIZE >= totalEmails} style={{
+              padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700,
+              background: (emailPage + 1) * PAGE_SIZE >= totalEmails ? 'var(--card)' : 'var(--card2)',
+              border: '1px solid var(--border)',
+              color: (emailPage + 1) * PAGE_SIZE >= totalEmails ? 'var(--text3)' : 'var(--text2)',
+              cursor: (emailPage + 1) * PAGE_SIZE >= totalEmails ? 'default' : 'pointer', fontFamily: 'DM Sans'
+            }}>Next →</button>
+          </div>
+        )}
       </div>
 
       {/* Email Detail Modal */}
