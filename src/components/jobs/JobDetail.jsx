@@ -142,6 +142,39 @@ export default function JobDetail({ jobId, onBack }) {
 
   function updateEdit(f, v) { setEditForm(prev => ({ ...prev, [f]: v })) }
 
+  async function syncToCalendar() {
+    if (!job.scheduled_start) { showToast('No schedule set'); return }
+    showToast('Syncing to Google Calendar...')
+    try {
+      const res = await fetch('/.netlify/functions/gcal-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: companyId,
+          job: {
+            name: job.name, job_number: job.job_number,
+            client_name: job.clients?.name,
+            site_address: job.site_address,
+            job_type: job.job_type, priority: job.priority,
+            description: job.description,
+            scheduled_start: job.scheduled_start,
+            scheduled_end: job.scheduled_end,
+            gcal_event_id: job.gcal_event_id
+          }
+        })
+      })
+      const data = await res.json()
+      if (data.event_id) {
+        await supabase.from('jobs').update({ gcal_event_id: data.event_id }).eq('id', jobId)
+        showToast('Synced to Google Calendar')
+      } else {
+        showToast('Calendar sync failed')
+      }
+    } catch (err) {
+      showToast('Calendar sync error')
+    }
+  }
+
   async function generateInvoiceFromJob() {
     if (!job || timeEntries.length === 0) return
     if (!confirm(`Generate invoice from ${timeEntries.length} time entries ($${totalLabor.toFixed(2)})?`)) return
@@ -357,7 +390,14 @@ export default function JobDetail({ jobId, onBack }) {
             )}
             {job.scheduled_start && (
               <div className="card" style={{ cursor: 'default' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Schedule</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, textTransform: 'uppercase' }}>Schedule</div>
+                  <button onClick={syncToCalendar} style={{
+                    padding: '4px 10px', borderRadius: 8, fontSize: 10, fontWeight: 700,
+                    background: 'rgba(33,150,243,0.1)', border: '1px solid rgba(33,150,243,0.2)',
+                    color: 'var(--blue)', cursor: 'pointer', fontFamily: 'DM Sans'
+                  }}>📅 Sync to Calendar</button>
+                </div>
                 <div style={{ fontSize: 13, color: 'var(--text2)' }}>
                   Start: {new Date(job.scheduled_start).toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </div>
