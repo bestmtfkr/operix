@@ -7,8 +7,7 @@ import { JOB_STAGES, STAGE_LABELS, STAGE_COLORS, JOB_TYPES, JOB_TYPE_LABELS, PRI
 import TasksList from '../tasks/TasksList'
 import JobDetail from './JobDetail'
 import AIJobAssistant from '../shared/AIJobAssistant'
-import CalendarView from './CalendarView'
-import DispatchBoard from './DispatchBoard'
+import ScheduleView from './ScheduleView'
 import './Jobs.css'
 
 export default function JobsList() {
@@ -313,18 +312,13 @@ export default function JobsList() {
         <button className={`view-toggle-btn ${view === 'tasks' ? 'active' : ''}`} onClick={() => setView('tasks')}>
           Tasks
         </button>
-        <button className={`view-toggle-btn ${view === 'calendar' ? 'active' : ''}`} onClick={() => setView('calendar')}>
-          Calendar
-        </button>
-        <button className={`view-toggle-btn ${view === 'dispatch' ? 'active' : ''}`} onClick={() => setView('dispatch')}>
-          Dispatch
+        <button className={`view-toggle-btn ${view === 'schedule' ? 'active' : ''}`} onClick={() => setView('schedule')}>
+          Schedule
         </button>
       </div>
 
-      {view === 'dispatch' ? (
-        <DispatchBoard onJobClick={id => setDetailJobId(id)} />
-      ) : view === 'calendar' ? (
-        <CalendarView onJobClick={id => setDetailJobId(id)} />
+      {view === 'schedule' ? (
+        <ScheduleView onJobClick={id => setDetailJobId(id)} />
       ) : view === 'tasks' ? (
         <TasksList />
       ) : view === 'list' ? (
@@ -535,7 +529,7 @@ export default function JobsList() {
       )}
 
       {/* FAB (hide when tasks view is active — tasks has its own) */}
-      {!['tasks', 'calendar', 'dispatch'].includes(view) && <button className="fab" onClick={openNew}>+</button>}
+      {!['tasks', 'schedule'].includes(view) && <button className="fab" onClick={openNew}>+</button>}
 
       {/* Modal */}
       {showModal && (
