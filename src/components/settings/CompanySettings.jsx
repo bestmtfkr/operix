@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../shared/Toast'
 import { TAX_PRESETS } from '../../lib/constants'
+import ChecklistTemplates from './ChecklistTemplates'
 
 export default function CompanySettings({ onNavigate }) {
   const { companyId, profile, signOut } = useAuth()
@@ -223,7 +224,12 @@ export default function CompanySettings({ onNavigate }) {
           {saving ? 'Saving...' : 'Save Settings'}
         </button>
 
-        <button className="btn btn-danger btn-full" style={{ marginTop: 16 }} onClick={signOut}>
+        {/* Checklist Templates */}
+        <div style={{ marginTop: 24 }}>
+          <ChecklistTemplates />
+        </div>
+
+        <button className="btn btn-danger btn-full" style={{ marginTop: 24 }} onClick={signOut}>
           Sign Out
         </button>
       </div>

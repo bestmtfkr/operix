@@ -8,6 +8,7 @@ import TasksList from '../tasks/TasksList'
 import JobDetail from './JobDetail'
 import AIJobAssistant from '../shared/AIJobAssistant'
 import CalendarView from './CalendarView'
+import DispatchBoard from './DispatchBoard'
 import './Jobs.css'
 
 export default function JobsList() {
@@ -315,9 +316,14 @@ export default function JobsList() {
         <button className={`view-toggle-btn ${view === 'calendar' ? 'active' : ''}`} onClick={() => setView('calendar')}>
           Calendar
         </button>
+        <button className={`view-toggle-btn ${view === 'dispatch' ? 'active' : ''}`} onClick={() => setView('dispatch')}>
+          Dispatch
+        </button>
       </div>
 
-      {view === 'calendar' ? (
+      {view === 'dispatch' ? (
+        <DispatchBoard onJobClick={id => setDetailJobId(id)} />
+      ) : view === 'calendar' ? (
         <CalendarView onJobClick={id => setDetailJobId(id)} />
       ) : view === 'tasks' ? (
         <TasksList />
@@ -529,7 +535,7 @@ export default function JobsList() {
       )}
 
       {/* FAB (hide when tasks view is active — tasks has its own) */}
-      {!['tasks', 'calendar'].includes(view) && <button className="fab" onClick={openNew}>+</button>}
+      {!['tasks', 'calendar', 'dispatch'].includes(view) && <button className="fab" onClick={openNew}>+</button>}
 
       {/* Modal */}
       {showModal && (

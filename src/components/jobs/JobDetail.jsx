@@ -5,6 +5,7 @@ import { useToast } from '../shared/Toast'
 import Modal from '../shared/Modal'
 import { STAGE_LABELS, STAGE_COLORS, JOB_STAGES, PRIORITY_LABELS, PRIORITY_COLORS, JOB_TYPE_LABELS, JOB_TYPES, PRIORITIES } from '../../lib/constants'
 import FileUpload from '../shared/FileUpload'
+import JobChecklist from './JobChecklist'
 
 export default function JobDetail({ jobId, onBack }) {
   const { companyId, profile } = useAuth()
@@ -234,6 +235,7 @@ export default function JobDetail({ jobId, onBack }) {
     { id: 'tasks', label: `Tasks (${tasks.length})` },
     { id: 'time', label: `Time (${timeEntries.length})` },
     { id: 'billing', label: `Billing (${invoices.length})` },
+    { id: 'checklist', label: `Checklist (${(job.checklist || []).filter(i => i.done).length}/${(job.checklist || []).length})` },
     { id: 'activity', label: 'Activity' },
   ]
 
@@ -455,6 +457,10 @@ export default function JobDetail({ jobId, onBack }) {
         )}
 
         {/* BILLING */}
+        {activeSection === 'checklist' && (
+          <JobChecklist jobId={jobId} checklist={job.checklist || []} onUpdate={() => loadAll()} />
+        )}
+
         {activeSection === 'billing' && (
           <div>
             {/* Generate Invoice from Time Entries */}
