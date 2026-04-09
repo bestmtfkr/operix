@@ -113,7 +113,17 @@ export default function SmartInbox() {
       for (const email of newEmails) {
         const quick = await categorizeEmail(`From: ${email.from}\nSubject: ${email.subject}\n\n${email.body.slice(0, 500)}`)
 
-        const { error } = await supabase.from('inbox_emails').insert({
+        // Auto-link if same thread as an already-linked email
+        let autoLinkedJobId = null
+        if (email.thread_id) {
+          const threadMatch = emails.find(e =>
+            e.metadata?.thread_id === email.thread_id &&
+            e.metadata?.linked_job_id
+          )
+          if (threadMatch) autoLinkedJobId = threadMatch.metadata.linked_job_id
+        }
+
+        const { data: savedEmail, error } = await supabase.from('inbox_emails').insert({
           company_id: companyId,
           from_address: email.from,
           from_name: quick?.from_name || email.from.split('<')[0].trim(),
@@ -125,14 +135,25 @@ export default function SmartInbox() {
           summary: quick?.summary || email.snippet,
           suggested_action: quick?.suggested_action || 'none',
           draft_reply: '',
-          status: 'unread',
+          status: autoLinkedJobId ? 'actioned' : 'unread',
           metadata: {
             gmail_id: email.gmail_id,
             thread_id: email.thread_id,
             needs_full_analysis: true,
-            date: email.date
+            date: email.date,
+            linked_job_id: autoLinkedJobId
           }
-        })
+        }).select().single()
+
+        // If auto-linked, add to job activity
+        if (!error && autoLinkedJobId && savedEmail) {
+          await supabase.from('job_activity').insert({
+            company_id: companyId, job_id: autoLinkedJobId, author_id: profile?.id,
+            type: 'email_received',
+            content: `Email from ${email.from.split('<')[0].trim()}: ${email.subject}`,
+            metadata: { email_id: savedEmail.id }
+          })
+        }
 
         if (!error) saved++
       }
@@ -198,20 +219,48 @@ export default function SmartInbox() {
     loadEmails()
   }
 
-  // AI suggests which job an email belongs to
+  // Suggest which job an email belongs to
+  // Priority: 1) Same thread as linked email  2) AI match by address+units  3) AI match by client
   async function suggestJobMatch(email) {
-    const jobList = jobs.slice(0, 20).map(j => ({
+    // 1. Check if another email in the same thread is already linked
+    if (email.metadata?.thread_id) {
+      const threadMatch = emails.find(e =>
+        e.id !== email.id &&
+        e.metadata?.thread_id === email.metadata.thread_id &&
+        e.metadata?.linked_job_id
+      )
+      if (threadMatch) {
+        const linkedJob = jobs.find(j => j.id === threadMatch.metadata.linked_job_id)
+        return {
+          job_id: threadMatch.metadata.linked_job_id,
+          confidence: 'high',
+          reason: `Same email thread as ${linkedJob?.job_number || 'a linked email'}`
+        }
+      }
+    }
+
+    // 2. AI match — prioritize address and unit numbers over client name
+    const jobList = jobs.slice(0, 30).map(j => ({
       id: j.id, name: j.name, number: j.job_number,
       client: j.clients?.name, address: j.site_address,
       units: j.unit_numbers, claim: j.insurance_claim_number
     }))
 
     const result = await askAIJSON(
-      `Email:\nFrom: ${email.from_name || email.from_address}\nSubject: ${email.subject}\nBody: ${(email.body || '').slice(0, 500)}\n\nExisting jobs:\n${JSON.stringify(jobList)}\n\nWhich job does this email most likely relate to? If no match, say null.`,
-      `You match incoming emails to existing jobs for a facility management company.
-Look at client names, addresses, unit numbers, claim numbers, and subject matter to find the best match.
-Return JSON: { "job_id": "uuid or null", "confidence": "high" | "medium" | "low", "reason": "brief explanation" }
-Only return valid JSON.`
+      `Email:\nFrom: ${email.from_name || email.from_address}\nSubject: ${email.subject}\nBody: ${(email.body || '').slice(0, 800)}\n\nExisting jobs:\n${JSON.stringify(jobList)}\n\nWhich job does this email relate to?`,
+      `You match incoming emails to existing jobs for a facility management / restoration company.
+
+MATCHING PRIORITY (most important first):
+1. ADDRESS — if the email mentions a specific street address, match to the job at that address
+2. UNIT NUMBERS — if units are mentioned, match to the job with those units
+3. INSURANCE CLAIM NUMBER — if a claim # is mentioned, match to that claim
+4. EMAIL THREAD CONTEXT — the subject line "Re:" indicates a reply chain about a specific job
+5. CLIENT NAME — only use client name if nothing else matches. One client can have MANY jobs, so client name alone is NOT enough.
+
+IMPORTANT: Do NOT match by client name alone if the email mentions a specific address that doesn't match any job. That means it's a NEW job, return null.
+
+Return JSON: { "job_id": "uuid or null", "confidence": "high" | "medium" | "low", "reason": "brief explanation of what matched" }
+Only return valid JSON.`, 256, 'haiku'
     )
     return result
   }
