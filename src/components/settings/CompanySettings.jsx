@@ -5,6 +5,7 @@ import { useToast } from '../shared/Toast'
 import { TAX_PRESETS } from '../../lib/constants'
 import ChecklistTemplates from './ChecklistTemplates'
 import PipelineSettings from './PipelineSettings'
+import EmailSettings from '../inbox/EmailSettings'
 
 export default function CompanySettings({ onNavigate }) {
   const { companyId, profile, signOut } = useAuth()
@@ -224,6 +225,14 @@ export default function CompanySettings({ onNavigate }) {
         <button className="btn btn-primary btn-full" style={{ marginTop: 24 }} onClick={save} disabled={saving}>
           {saving ? 'Saving...' : 'Save Settings'}
         </button>
+
+        {/* Email Settings */}
+        <div style={{ marginTop: 24 }}>
+          <EmailSettings settings={settings} onSave={async (updated) => {
+            await supabase.from('companies').update({ settings: updated }).eq('id', companyId)
+            setSettings(updated)
+          }} />
+        </div>
 
         {/* Pipeline Settings */}
         <div style={{ marginTop: 24 }}>

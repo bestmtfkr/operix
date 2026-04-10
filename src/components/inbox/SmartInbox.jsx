@@ -31,13 +31,17 @@ export default function SmartInbox() {
   const [sortMode, setSortMode] = useState('address') // 'address' or 'name'
   const [emailSort, setEmailSort] = useState('newest')
   const [emailSearch, setEmailSearch] = useState('')
+  const [teamMembers, setTeamMembers] = useState([])
+  const [replyTemplates, setReplyTemplates] = useState([])
+  const [newComment, setNewComment] = useState('')
+  const [emailConfig, setEmailConfig] = useState({})
   const [gmailConnected, setGmailConnected] = useState(false)
   const [gmailEmail, setGmailEmail] = useState('')
   const [importing, setImporting] = useState(false)
   const [importProgress, setImportProgress] = useState({ done: 0, total: 0 })
 
   useEffect(() => {
-    if (companyId) { loadEmails(); loadJobs(); loadClients(); checkGmail() }
+    if (companyId) { loadEmails(); loadJobs(); loadClients(); checkGmail(); loadTeamAndConfig() }
   }, [companyId])
 
   // Auto-sync Gmail every 5 minutes
@@ -362,6 +366,64 @@ export default function SmartInbox() {
     const { data } = await supabase.from('clients').select('id, name, contact_email')
       .eq('company_id', companyId).is('archived_at', null)
     setClients(data || [])
+  }
+
+  async function loadTeamAndConfig() {
+    const [membersRes, templatesRes, compRes] = await Promise.all([
+      supabase.from('profiles').select('id, full_name, email, role').eq('company_id', companyId).eq('is_active', true),
+      supabase.from('reply_templates').select('*').eq('company_id', companyId).order('name'),
+      supabase.from('companies').select('settings').eq('id', companyId).single()
+    ])
+    setTeamMembers(membersRes.data || [])
+    setReplyTemplates(templatesRes.data || [])
+    setEmailConfig(compRes.data?.settings || {})
+  }
+
+  async function assignEmail(emailId, userId) {
+    await supabase.from('inbox_emails').update({ assigned_to: userId }).eq('id', emailId)
+    showToast(userId ? 'Email assigned' : 'Assignment removed')
+    loadEmails()
+  }
+
+  async function addComment(emailId) {
+    if (!newComment.trim()) return
+    const email = emails.find(e => e.id === emailId) || showDetail
+    const comments = [...(email?.comments || []), {
+      user: profile?.full_name || 'User',
+      text: newComment.trim(),
+      time: new Date().toISOString()
+    }]
+    await supabase.from('inbox_emails').update({ comments }).eq('id', emailId)
+    setNewComment('')
+    // Update detail view
+    if (showDetail?.id === emailId) {
+      setShowDetail(prev => ({ ...prev, comments }))
+    }
+    showToast('Comment added')
+  }
+
+  function applyTemplate(template, email) {
+    const linked = email?.metadata?.linked_job_id ? jobs.find(j => j.id === email.metadata.linked_job_id) : null
+    let body = template.body
+    body = body.replace(/\{client_name\}/g, email?.from_name || '')
+    body = body.replace(/\{address\}/g, linked?.site_address || '')
+    body = body.replace(/\{job_number\}/g, linked?.job_number || '')
+    body = body.replace(/\{date\}/g, new Date().toLocaleDateString('en-CA'))
+    body = body.replace(/\{worker_name\}/g, profile?.full_name || '')
+    return body
+  }
+
+  function getSlaStatus(email) {
+    if (!emailConfig.email_sla || !email.created_at) return null
+    const hours = emailConfig.email_sla_hours || 4
+    const created = new Date(email.metadata?.date || email.created_at).getTime()
+    const deadline = created + hours * 3600000
+    const now = Date.now()
+    const remaining = (deadline - now) / 3600000
+    if (email.status === 'actioned') return { status: 'resolved', label: 'Resolved' }
+    if (remaining <= 0) return { status: 'breached', label: `Overdue by ${Math.abs(remaining).toFixed(1)}h`, color: 'var(--red)' }
+    if (remaining <= 1) return { status: 'warning', label: `${remaining.toFixed(1)}h remaining`, color: 'var(--yellow)' }
+    return { status: 'ok', label: `${remaining.toFixed(1)}h remaining`, color: 'var(--text3)' }
   }
 
   async function analyzeAndSave() {
@@ -940,6 +1002,12 @@ Only return valid JSON.`, 256, 'haiku'
                 {isLinked && linkedJob && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(33,150,243,0.12)', color: 'var(--blue)' }}>🔗 {linkedJob.job_number}</span>}
                 {!isLinked && email.suggested_action === 'create_job' && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(0,212,160,0.1)', color: 'var(--primary)', border: '1px solid rgba(0,212,160,0.2)' }}>→ NEW JOB</span>}
                 {email.metadata?.attachments?.length > 0 && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(255,184,0,0.1)', color: 'var(--yellow)' }}>📎 {email.metadata.attachments.length}</span>}
+                {emailConfig.email_assignment && email.assigned_to && (() => {
+                  const assignee = teamMembers.find(m => m.id === email.assigned_to)
+                  return assignee ? <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(139,92,246,0.1)', color: 'var(--purple)' }}>👤 {assignee.full_name?.split(' ')[0]}</span> : null
+                })()}
+                {emailConfig.email_comments && (email.comments || []).length > 0 && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(33,150,243,0.1)', color: 'var(--blue)' }}>💬 {email.comments.length}</span>}
+                {(() => { const sla = getSlaStatus(email); return sla && sla.status !== 'ok' && sla.status !== 'resolved' ? <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: sla.status === 'breached' ? 'rgba(255,59,92,0.1)' : 'rgba(255,184,0,0.1)', color: sla.color }}>⏱ {sla.label}</span> : null })()}
               </div>
             </div>
           )
@@ -1112,6 +1180,75 @@ Only return valid JSON.`, 256, 'haiku'
             </div>
           )}
 
+          {/* Front-inspired features bar */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+            {/* Assignment */}
+            {emailConfig.email_assignment && (
+              <select value={showDetail.assigned_to || ''} onChange={e => assignEmail(showDetail.id, e.target.value || null)}
+                style={{
+                  padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                  background: showDetail.assigned_to ? 'rgba(139,92,246,0.1)' : 'var(--bg2)',
+                  border: `1px solid ${showDetail.assigned_to ? 'rgba(139,92,246,0.2)' : 'var(--border)'}`,
+                  color: showDetail.assigned_to ? 'var(--purple)' : 'var(--text3)',
+                  outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer'
+                }}>
+                <option value="">👤 Unassigned</option>
+                {teamMembers.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
+              </select>
+            )}
+
+            {/* SLA */}
+            {(() => {
+              const sla = getSlaStatus(showDetail)
+              return sla ? (
+                <div style={{
+                  padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                  background: sla.status === 'breached' ? 'rgba(255,59,92,0.1)' : sla.status === 'warning' ? 'rgba(255,184,0,0.1)' : sla.status === 'resolved' ? 'rgba(0,212,160,0.1)' : 'var(--bg2)',
+                  color: sla.color || 'var(--text3)',
+                  border: '1px solid var(--border)'
+                }}>⏱ {sla.label}</div>
+              ) : null
+            })()}
+          </div>
+
+          {/* Internal Comments */}
+          {emailConfig.email_comments && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, marginBottom: 6 }}>
+                INTERNAL COMMENTS ({(showDetail.comments || []).length})
+              </div>
+              <div style={{ background: 'var(--bg2)', borderRadius: 12, overflow: 'hidden', marginBottom: 8 }}>
+                {(showDetail.comments || []).length === 0 ? (
+                  <div style={{ padding: 12, textAlign: 'center', fontSize: 11, color: 'var(--text3)' }}>No comments yet — only your team sees these</div>
+                ) : (showDetail.comments || []).map((c, i) => (
+                  <div key={i} style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--purple)' }}>{c.user}</span>
+                      <span style={{ fontSize: 9, color: 'var(--text3)' }}>
+                        {new Date(c.time).toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>{c.text}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input value={newComment} onChange={e => setNewComment(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') addComment(showDetail.id) }}
+                  placeholder="Add internal comment..."
+                  style={{
+                    flex: 1, padding: '8px 12px', background: 'var(--card)', border: '1px solid var(--border)',
+                    borderRadius: 8, fontSize: 12, color: 'var(--text)', outline: 'none', fontFamily: 'DM Sans'
+                  }} />
+                <button onClick={() => addComment(showDetail.id)} style={{
+                  padding: '8px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                  background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)',
+                  color: 'var(--purple)', cursor: 'pointer', fontFamily: 'DM Sans'
+                }}>💬</button>
+              </div>
+            </div>
+          )}
+
           {/* Email body — expandable */}
           <details style={{ marginBottom: 14 }}>
             <summary style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, cursor: 'pointer', padding: '8px 0', userSelect: 'none' }}>
@@ -1122,23 +1259,42 @@ Only return valid JSON.`, 256, 'haiku'
             </div>
           </details>
 
-          {/* Suggested Reply */}
-          {showDetail.draft_reply && (
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <label className="form-label" style={{ margin: 0 }}>SUGGESTED REPLY</label>
+          {/* Reply Section */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <label className="form-label" style={{ margin: 0 }}>REPLY</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {/* Template picker */}
+                {emailConfig.email_templates && replyTemplates.length > 0 && (
+                  <select onChange={e => {
+                    if (!e.target.value) return
+                    const tpl = replyTemplates.find(t => t.id === e.target.value)
+                    if (tpl) {
+                      const el = document.getElementById('draft-reply-text')
+                      if (el) el.value = applyTemplate(tpl, showDetail)
+                    }
+                    e.target.value = ''
+                  }} style={{
+                    padding: '5px 8px', borderRadius: 8, fontSize: 10, fontWeight: 600,
+                    background: 'var(--bg2)', border: '1px solid var(--border)', color: 'var(--text2)',
+                    outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer'
+                  }}>
+                    <option value="">📝 Templates</option>
+                    {replyTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                )}
                 <button className="btn btn-secondary" style={{ padding: '5px 12px', fontSize: 11 }}
                   onClick={() => {
                     const el = document.getElementById('draft-reply-text')
-                    navigator.clipboard.writeText(el?.value || showDetail.draft_reply).then(() => showToast('Copied to clipboard'))
+                    navigator.clipboard.writeText(el?.value || showDetail.draft_reply || '').then(() => showToast('Copied to clipboard'))
                   }}>📋 Copy</button>
               </div>
-              <textarea id="draft-reply-text" className="form-input" style={{
-                fontSize: 14, lineHeight: 1.7, minHeight: 160, color: 'var(--text)',
-                background: 'var(--bg2)', padding: 16
-              }} defaultValue={showDetail.draft_reply} />
             </div>
-          )}
+            <textarea id="draft-reply-text" className="form-input" style={{
+              fontSize: 14, lineHeight: 1.7, minHeight: 160, color: 'var(--text)',
+              background: 'var(--bg2)', padding: 16
+            }} defaultValue={showDetail.draft_reply || ''} placeholder="Write a reply or select a template..." />
+          </div>
 
           {/* Action buttons */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
