@@ -14,7 +14,7 @@ const STATUS_COLORS = {
   partial: '#FF6B35', paid: '#00D4A0', overdue: '#FF3B5C', void: '#3D4A5C'
 }
 
-export default function BillingScreen() {
+export default function BillingScreen({ onNavigate }) {
   const { companyId, profile } = useAuth()
   const showToast = useToast()
   const [invoices, setInvoices] = useState([])
@@ -34,6 +34,8 @@ export default function BillingScreen() {
   })
   const [companySettings, setCompanySettings] = useState(null)
   const [qboConnected, setQboConnected] = useState(false)
+  const [qboTokens, setQboTokens] = useState(null)
+  const [qboSettings, setQboSettings] = useState({})
   const [pushingQbo, setPushingQbo] = useState(false)
 
   useEffect(() => {
@@ -72,9 +74,32 @@ export default function BillingScreen() {
   }
 
   async function loadSettings() {
-    const { data } = await supabase.from('companies').select('settings, qbo_tokens').eq('id', companyId).single()
+    const { data } = await supabase.from('companies').select('settings, qbo_tokens, qbo_settings').eq('id', companyId).single()
     setCompanySettings(data?.settings || {})
     setQboConnected(!!data?.qbo_tokens?.access_token)
+    setQboTokens(data?.qbo_tokens || null)
+    setQboSettings(data?.qbo_settings || {})
+  }
+
+  async function syncAllPayments() {
+    setPushingQbo(true)
+    try {
+      const res = await fetch('/.netlify/functions/qbo-poll-payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company_id: companyId })
+      })
+      const data = await res.json()
+      if (data.error) {
+        showToast('Sync failed: ' + data.error)
+      } else {
+        showToast(`${data.updated_invoices || 0} invoice(s) updated`)
+        loadInvoices()
+      }
+    } catch (err) {
+      showToast('Sync error: ' + err.message)
+    }
+    setPushingQbo(false)
   }
 
   async function refreshQboPayment() {
@@ -305,6 +330,21 @@ export default function BillingScreen() {
 
   if (loading) return <div className="loading-center"><div className="spinner" /></div>
 
+  // QBO derived stats
+  const qboPushed = invoices.filter(i => i.qbo_invoice_id)
+  const qboErrors = invoices.filter(i => i.qbo_sync_error)
+  const qboUnpushed = invoices.filter(i => !i.qbo_invoice_id && i.status !== 'draft' && i.status !== 'void')
+  const lastPushed = qboPushed
+    .filter(i => i.qbo_pushed_at)
+    .sort((a, b) => new Date(b.qbo_pushed_at) - new Date(a.qbo_pushed_at))[0]
+  const recentQboActivity = invoices
+    .filter(i => i.qbo_last_synced_at || i.qbo_pushed_at)
+    .sort((a, b) =>
+      new Date(b.qbo_last_synced_at || b.qbo_pushed_at) -
+      new Date(a.qbo_last_synced_at || a.qbo_pushed_at)
+    )
+    .slice(0, 8)
+
   return (
     <div>
       <div className="page-header">
@@ -313,6 +353,115 @@ export default function BillingScreen() {
           <div className="page-subtitle">{invoices.length} invoices</div>
         </div>
       </div>
+
+      {/* QuickBooks panel */}
+      {qboConnected ? (
+        <div style={{ margin: '0 16px 12px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 14, padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>📊</span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 800 }}>QuickBooks Online</div>
+                <div style={{ fontSize: 10, color: 'var(--text3)' }}>
+                  {qboSettings.environment || 'sandbox'} • Realm {qboTokens?.realm_id?.slice(-6)}
+                  {qboSettings.last_customer_sync_at && ` • Customers synced ${new Date(qboSettings.last_customer_sync_at).toLocaleDateString('en-CA')}`}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={syncAllPayments}
+              disabled={pushingQbo}
+              style={{ padding: '6px 12px', borderRadius: 8, background: 'var(--primary)', border: 'none', color: '#000', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'DM Sans' }}
+            >
+              {pushingQbo ? '⏳' : '↻ Sync payments'}
+            </button>
+          </div>
+
+          {/* Stats grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 10 }}>
+            <div style={{ background: 'var(--bg2)', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--primary)' }}>{qboPushed.length}</div>
+              <div style={{ fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>Synced</div>
+            </div>
+            <div style={{ background: 'var(--bg2)', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--yellow)' }}>{qboUnpushed.length}</div>
+              <div style={{ fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>Unpushed</div>
+            </div>
+            <div style={{ background: 'var(--bg2)', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: qboErrors.length ? 'var(--red)' : 'var(--text3)' }}>{qboErrors.length}</div>
+              <div style={{ fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>Errors</div>
+            </div>
+            <div style={{ background: 'var(--bg2)', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text2)' }}>
+                {lastPushed ? new Date(lastPushed.qbo_pushed_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : '—'}
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>Last push</div>
+            </div>
+          </div>
+
+          {/* Recent activity */}
+          {recentQboActivity.length > 0 && (
+            <div>
+              <div style={{ fontSize: 9, fontWeight: 800, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+                Recent QuickBooks Activity
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 200, overflowY: 'auto' }}>
+                {recentQboActivity.map(inv => {
+                  const ts = inv.qbo_last_synced_at || inv.qbo_pushed_at
+                  let action = '📤 Pushed'
+                  let color = 'var(--primary)'
+                  if (inv.qbo_sync_error) { action = '⚠ Error'; color = 'var(--red)' }
+                  else if (inv.status === 'paid') { action = '💰 Paid'; color = 'var(--green)' }
+                  else if (inv.status === 'partial') { action = '◑ Partial'; color = 'var(--yellow)' }
+                  else if (inv.qbo_last_synced_at && inv.qbo_last_synced_at !== inv.qbo_pushed_at) { action = '↻ Synced'; color = 'var(--blue)' }
+                  return (
+                    <div
+                      key={inv.id}
+                      onClick={() => openEdit(inv)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '8px 10px', background: 'var(--bg2)', borderRadius: 8,
+                        cursor: 'pointer', fontSize: 11
+                      }}
+                    >
+                      <span style={{ color, fontWeight: 700, minWidth: 70 }}>{action}</span>
+                      <span style={{ color: 'var(--text2)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <strong>{inv.invoice_number}</strong> · {inv.clients?.name || 'No client'} · ${parseFloat(inv.total || 0).toFixed(2)}
+                      </span>
+                      <span style={{ color: 'var(--text3)', fontSize: 10 }}>
+                        {ts ? new Date(ts).toLocaleString('en-CA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Errors callout */}
+          {qboErrors.length > 0 && (
+            <div style={{ marginTop: 8, padding: 10, background: 'rgba(255,59,92,0.06)', border: '1px solid rgba(255,59,92,0.2)', borderRadius: 8, fontSize: 11, color: 'var(--red)' }}>
+              ⚠ {qboErrors.length} invoice{qboErrors.length > 1 ? 's' : ''} with sync errors. Open them to see details and re-push.
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ margin: '0 16px 12px', padding: 12, background: 'var(--card)', border: '1px dashed var(--border)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 18 }}>📊</span>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700 }}>QuickBooks not connected</div>
+              <div style={{ fontSize: 10, color: 'var(--text3)' }}>Push invoices and sync payments automatically</div>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate ? onNavigate('profile') : null}
+            style={{ padding: '6px 12px', borderRadius: 6, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text2)', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans' }}
+          >
+            Connect →
+          </button>
+        </div>
+      )}
 
       {/* Quotes / Invoices Toggle */}
       <div className="view-toggle" style={{ margin: '0 16px 8px' }}>

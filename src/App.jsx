@@ -70,7 +70,7 @@ function AppContent() {
       case 'dashboard': return <LazyScreen><Dashboard onNavigate={setActiveTab} /></LazyScreen>
       case 'clients': return <LazyScreen><ClientsList /></LazyScreen>
       case 'jobs': return <LazyScreen><JobsList /></LazyScreen>
-      case 'billing': return <LazyScreen><BillingScreen /></LazyScreen>
+      case 'billing': return <LazyScreen><BillingScreen onNavigate={setActiveTab} /></LazyScreen>
       case 'team': return <LazyScreen><TeamScreen /></LazyScreen>
       case 'inbox': return <LazyScreen><SmartInbox onNavigate={setActiveTab} /></LazyScreen>
       case 'reports': return <LazyScreen><ReportsScreen /></LazyScreen>
