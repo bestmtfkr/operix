@@ -115,8 +115,10 @@ export default async (req) => {
         emails.push({
           gmail_id: msg.id,
           thread_id: msg.threadId,
+          message_id: getHeader('Message-ID') || getHeader('Message-Id'),
           from: getHeader('From'),
           to: getHeader('To'),
+          cc: getHeader('Cc'),
           subject: getHeader('Subject'),
           date: getHeader('Date'),
           body: body.slice(0, 3000),
