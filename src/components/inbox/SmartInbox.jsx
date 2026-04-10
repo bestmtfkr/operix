@@ -48,14 +48,13 @@ export default function SmartInbox() {
     if (companyId) { loadEmails(); loadJobs(); loadClients(); checkGmail(); loadTeamAndConfig() }
   }, [companyId])
 
-  // Auto-sync Gmail every 5 minutes
+  // Auto-sync Gmail — initial delay so first load renders fast, then every 2 min
   useEffect(() => {
     if (!gmailConnected || !companyId) return
-    // Sync on first load
-    fetchGmailEmails(true)
-    // Then every 5 minutes
-    const interval = setInterval(() => fetchGmailEmails(true), 30 * 1000)
-    return () => clearInterval(interval)
+    // Wait 8s before first sync so the initial email list renders first
+    const firstSync = setTimeout(() => fetchGmailEmails(true), 8000)
+    const interval = setInterval(() => fetchGmailEmails(true), 2 * 60 * 1000)
+    return () => { clearTimeout(firstSync); clearInterval(interval) }
   }, [gmailConnected, companyId])
 
   // Listen for Gmail OAuth callback
@@ -348,22 +347,47 @@ export default function SmartInbox() {
     setSearchResults(data || [])
   }
 
+  // Only columns needed for the list view — body/html_body/raw_text/draft_reply are
+  // lazy-loaded in openEmail. Without this, each page fetch was ~2-3MB.
+  const LIST_COLUMNS = 'id, company_id, from_address, from_name, subject, summary, categories, priority, status, suggested_action, assigned_to, comments, created_at, actioned_at, metadata'
+
   async function loadEmails(page = 0) {
     const from = page * PAGE_SIZE
     const to = from + PAGE_SIZE - 1
 
-    const [{ data, count }, ] = await Promise.all([
-      supabase.from('inbox_emails')
-        .select('*', { count: 'exact' })
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false })
-        .range(from, to),
-    ])
+    try {
+      // Use 'estimated' count for 58k+ rows — instant, vs 'exact' which scans.
+      // Fetch list rows + count in parallel.
+      const [listRes, countRes] = await Promise.all([
+        supabase.from('inbox_emails')
+          .select(LIST_COLUMNS)
+          .eq('company_id', companyId)
+          .order('created_at', { ascending: false })
+          .range(from, to),
+        supabase.from('inbox_emails')
+          .select('id', { count: 'estimated', head: true })
+          .eq('company_id', companyId)
+      ])
 
-    setEmails(data || [])
-    setTotalEmails(count || 0)
-    setEmailPage(page)
-    setLoading(false)
+      if (listRes.error) {
+        console.error('loadEmails error', listRes.error)
+        showToast('Load failed, retrying...')
+        setTimeout(() => loadEmails(page), 2000)
+        return
+      }
+
+      // Only replace list if we actually got data — avoids wiping on race
+      if (listRes.data) {
+        setEmails(listRes.data)
+        setTotalEmails(countRes.count || listRes.data.length)
+        setEmailPage(page)
+      }
+    } catch (err) {
+      console.error('loadEmails exception', err)
+      showToast('Load failed')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function loadJobs() {
@@ -637,8 +661,22 @@ Only return valid JSON.`, 256, 'haiku'
     if (opening || showDetail) return // Prevent double-tap
     setOpening(true)
 
-    // Open detail immediately — don't wait for AI
-    setShowDetail({ ...email, _openedFrom: tab, _analyzing: email.metadata?.needs_full_analysis })
+    // Open detail immediately with list-row data — body fetches in background
+    setShowDetail({ ...email, _openedFrom: tab, _analyzing: email.metadata?.needs_full_analysis, _bodyLoading: true })
+
+    // Lazy-fetch the heavy fields (body, html_body, raw_text, draft_reply) only now
+    supabase.from('inbox_emails')
+      .select('body, html_body, raw_text, draft_reply')
+      .eq('id', email.id)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          Object.assign(email, data)
+          setShowDetail(prev => prev?.id === email.id ? { ...prev, ...data, _bodyLoading: false } : prev)
+        } else {
+          setShowDetail(prev => prev?.id === email.id ? { ...prev, _bodyLoading: false } : prev)
+        }
+      })
 
     // Mark as read in background
     if (email.status === 'unread') {
@@ -648,7 +686,9 @@ Only return valid JSON.`, 256, 'haiku'
 
     // Run FULL analysis with Sonnet if not done yet (on-demand, only when user opens)
     if (email.metadata?.needs_full_analysis) {
-      const body = (email.body || email.raw_text || '').slice(0, 2000)
+      // Wait a tick for body to load — if still not there use snippet/summary
+      await new Promise(r => setTimeout(r, 500))
+      const body = (email.body || email.raw_text || email.summary || '').slice(0, 2000)
       const fullText = `From: ${email.from_name || email.from_address}\nSubject: ${email.subject}\n\n${body}`
       Promise.race([
         analyzeEmailFull(fullText),
@@ -940,76 +980,48 @@ Only return valid JSON.`, 256, 'haiku'
 
   if (loading) return <div className="loading-center"><div className="spinner" /></div>
 
+  const filterDefs = [
+    { id: 'all', label: 'All', icon: '📬' },
+    { id: 'unread', label: 'Unread', icon: '🔵' },
+    { id: 'insurance', label: 'Insurance', icon: '🏢' },
+    { id: 'client', label: 'Clients', icon: '👤' },
+    { id: 'supplier', label: 'Suppliers', icon: '🚚' },
+    { id: 'urgent', label: 'Urgent', icon: '🚨' }
+  ]
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Top bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-        <div>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>Inbox</div>
-          <div style={{ fontSize: 11, color: 'var(--text3)' }}>{totalEmails.toLocaleString()} emails</div>
-        </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+    <div className="inbox-shell">
+      {/* LEFT — email list column */}
+      <div className="inbox-main">
+        {/* Top bar — title + tabs */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>Inbox</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>{totalEmails.toLocaleString()} emails{gmailConnected ? ` • 📧 ${gmailEmail}` : ''}</div>
+          </div>
           {!gmailConnected && <button onClick={connectGmail} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600, border: '1px solid rgba(0,212,160,0.2)', background: 'transparent', color: 'var(--primary)', cursor: 'pointer', fontFamily: 'DM Sans' }}>📧 Connect Gmail</button>}
-          {gmailConnected && <>
-            <span style={{ fontSize: 10, color: 'var(--text3)', alignSelf: 'center' }}>📧 {gmailEmail}</span>
-            <button onClick={openCompose} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, border: 'none', background: 'var(--primary)', color: '#000', cursor: 'pointer', fontFamily: 'DM Sans' }}>✍️ Compose</button>
-            <button onClick={() => fetchGmailEmails(false)} disabled={syncing} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'DM Sans' }}>{syncing ? '⏳' : '🔄'}</button>
-            <button onClick={() => { console.log('IMPORT CLICKED'); bulkImport() }} disabled={importing} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'DM Sans' }}>{importing ? '⏳' : '📥'}</button>
-          </>}
         </div>
-      </div>
 
-      {importing && <div style={{ padding: '6px 20px', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--primary)', marginBottom: 4 }}>
-          <span>Importing...</span><span>{importProgress.done}{importProgress.total ? ` / ~${importProgress.total}` : ''}</span>
+        {importing && <div style={{ padding: '6px 20px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--primary)', marginBottom: 4 }}>
+            <span>Importing...</span><span>{importProgress.done}{importProgress.total ? ` / ~${importProgress.total}` : ''}</span>
+          </div>
+          <div style={{ height: 3, background: 'var(--bg2)', borderRadius: 2 }}><div style={{ height: '100%', borderRadius: 2, background: 'var(--primary)', width: importProgress.total ? `${Math.min((importProgress.done / importProgress.total) * 100, 100)}%` : '30%' }} /></div>
+        </div>}
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          {[{ id: 'inbox', label: 'Inbox', count: emails.length }, { id: 'suggestions', label: 'Sort', count: suggestions.length }, { id: 'linked', label: 'Linked', count: linked.length }].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              flex: 1, padding: '10px', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
+              background: 'transparent', color: tab === t.id ? 'var(--text)' : 'var(--text3)',
+              borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent'
+            }}>{t.label} <span style={{ fontSize: 11, color: 'var(--text3)' }}>({t.count})</span></button>
+          ))}
         </div>
-        <div style={{ height: 3, background: 'var(--bg2)', borderRadius: 2 }}><div style={{ height: '100%', borderRadius: 2, background: 'var(--primary)', width: importProgress.total ? `${Math.min((importProgress.done / importProgress.total) * 100, 100)}%` : '30%' }} /></div>
-      </div>}
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-        {[{ id: 'inbox', label: 'Inbox', count: emails.length }, { id: 'suggestions', label: 'Sort', count: suggestions.length }, { id: 'linked', label: 'Linked', count: linked.length }].map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
-            flex: 1, padding: '10px', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
-            background: 'transparent', color: tab === t.id ? 'var(--text)' : 'var(--text3)',
-            borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent'
-          }}>{t.label} <span style={{ fontSize: 11, color: 'var(--text3)' }}>({t.count})</span></button>
-        ))}
-      </div>
-
-      {/* Search + filters */}
-      <div style={{ display: 'flex', gap: 6, padding: '8px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0, alignItems: 'center', overflowX: 'auto', scrollbarWidth: 'none' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 120 }}>
-          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: 'var(--text3)' }}>🔍</span>
-          <input value={emailSearch} onChange={e => setEmailSearch(e.target.value)} placeholder="Search..." style={{
-            width: '100%', padding: '7px 10px 7px 30px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text)', outline: 'none', fontFamily: 'DM Sans'
-          }} />
-        </div>
-        <select value={emailSort} onChange={e => setEmailSort(e.target.value)} style={{ padding: '6px 8px', borderRadius: 6, fontSize: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer' }}>
-          <option value="newest">Newest</option><option value="oldest">Oldest</option><option value="name_az">A-Z</option><option value="name_za">Z-A</option><option value="unread">Unread</option><option value="priority">Priority</option>
-        </select>
-        {['all','unread','insurance','client','supplier','urgent'].map(f => (
-          <button key={f} onClick={() => setFilter(f)} style={{
-            padding: '5px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', fontFamily: 'DM Sans',
-            border: filter === f ? '1px solid var(--primary)' : '1px solid var(--border)',
-            background: filter === f ? 'var(--primary)' : 'transparent',
-            color: filter === f ? '#000' : 'var(--text3)'
-          }}>{f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}</button>
-        ))}
-      </div>
-
-      {/* Paste email */}
-      {showCompose && <div style={{ padding: '8px 20px', borderBottom: '1px solid var(--border)' }}>
-        <textarea value={inputText} onChange={e => setInputText(e.target.value)} placeholder="Paste email text..." style={{ width: '100%', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, fontSize: 13, color: 'var(--text)', fontFamily: 'DM Sans', outline: 'none', resize: 'none', minHeight: 80, lineHeight: 1.5 }} />
-        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-          <button onClick={analyzeAndSave} disabled={analyzing} style={{ flex: 1, padding: 8, borderRadius: 8, background: analyzing ? 'var(--card2)' : 'var(--primary)', border: 'none', color: analyzing ? 'var(--text3)' : '#000', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'DM Sans' }}>{analyzing ? '⏳' : '🤖 Analyze'}</button>
-          <button onClick={() => setShowCompose(false)} style={{ padding: '8px 12px', borderRadius: 8, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text3)', fontSize: 12, cursor: 'pointer', fontFamily: 'DM Sans' }}>Cancel</button>
-        </div>
-      </div>}
-      {!showCompose && <button onClick={() => setShowCompose(true)} style={{ margin: '0 20px', padding: '8px', border: '1px dashed var(--border)', borderRadius: 8, background: 'transparent', color: 'var(--text3)', fontSize: 11, cursor: 'pointer', fontFamily: 'DM Sans', textAlign: 'center', marginBottom: 0, marginTop: 0 }}>📋 Paste email manually</button>}
-
-      {/* Email list */}
-      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        {/* Email list */}
+        <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
         {displayEmails.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">{tab === 'suggestions' ? '✅' : tab === 'linked' ? '🔗' : '📬'}</div>
@@ -1050,7 +1062,99 @@ Only return valid JSON.`, 256, 'haiku'
             <button onClick={() => loadEmails(emailPage + 1)} disabled={(emailPage + 1) * PAGE_SIZE >= totalEmails}>Next →</button>
           </div>
         )}
+        </div>
       </div>
+
+      {/* RIGHT SIDEBAR — compose, search, sort, filters */}
+      <aside className="inbox-sidebar">
+        {/* Compose (primary CTA) */}
+        <button
+          onClick={openCompose}
+          disabled={!gmailConnected}
+          className="sidebar-compose"
+        >
+          <span style={{ fontSize: 18 }}>✍️</span>
+          <span>Compose</span>
+        </button>
+
+        {/* Gmail actions */}
+        {gmailConnected && (
+          <div className="sidebar-section">
+            <div className="sidebar-label">Gmail</div>
+            <button onClick={() => fetchGmailEmails(false)} disabled={syncing} className="sidebar-btn">
+              {syncing ? '⏳ Syncing...' : '🔄 Sync now'}
+            </button>
+            <button onClick={bulkImport} disabled={importing} className="sidebar-btn">
+              {importing ? '⏳ Importing...' : '📥 Bulk import'}
+            </button>
+            <button onClick={() => setShowCompose(s => !s)} className="sidebar-btn">
+              📋 Paste manually
+            </button>
+          </div>
+        )}
+
+        {/* Paste manually inline panel */}
+        {showCompose && (
+          <div className="sidebar-section">
+            <textarea
+              value={inputText}
+              onChange={e => setInputText(e.target.value)}
+              placeholder="Paste email text..."
+              style={{ width: '100%', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, fontSize: 12, color: 'var(--text)', fontFamily: 'DM Sans', outline: 'none', resize: 'none', minHeight: 100, lineHeight: 1.5, marginBottom: 6 }}
+            />
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={analyzeAndSave} disabled={analyzing} className="sidebar-btn" style={{ flex: 1, background: analyzing ? 'var(--card2)' : 'var(--primary)', color: analyzing ? 'var(--text3)' : '#000', fontWeight: 700, border: 'none' }}>{analyzing ? '⏳' : '🤖 Analyze'}</button>
+              <button onClick={() => setShowCompose(false)} className="sidebar-btn" style={{ flex: 'none' }}>✕</button>
+            </div>
+          </div>
+        )}
+
+        {/* Search */}
+        <div className="sidebar-section">
+          <div className="sidebar-label">Search</div>
+          <div style={{ position: 'relative' }}>
+            <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: 'var(--text3)' }}>🔍</span>
+            <input
+              value={emailSearch}
+              onChange={e => setEmailSearch(e.target.value)}
+              placeholder="Search emails..."
+              style={{
+                width: '100%', padding: '9px 10px 9px 30px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text)', outline: 'none', fontFamily: 'DM Sans', boxSizing: 'border-box'
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Sort */}
+        <div className="sidebar-section">
+          <div className="sidebar-label">Sort by</div>
+          <select value={emailSort} onChange={e => setEmailSort(e.target.value)} className="sidebar-select">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="name_az">Name A–Z</option>
+            <option value="name_za">Name Z–A</option>
+            <option value="unread">Unread first</option>
+            <option value="priority">Priority</option>
+          </select>
+        </div>
+
+        {/* Filters */}
+        <div className="sidebar-section">
+          <div className="sidebar-label">Filter</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {filterDefs.map(f => (
+              <button
+                key={f.id}
+                onClick={() => setFilter(f.id)}
+                className={`sidebar-filter ${filter === f.id ? 'active' : ''}`}
+              >
+                <span>{f.icon}</span>
+                <span>{f.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </aside>
 
       {/* EMAIL DETAIL */}
       {showDetail && (
@@ -1098,7 +1202,11 @@ Only return valid JSON.`, 256, 'haiku'
           })()}
 
           {/* THE EMAIL — render HTML if available, plain text fallback */}
-          {showDetail.html_body ? (
+          {showDetail._bodyLoading ? (
+            <div className="email-full-body" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200, color: 'var(--text3)' }}>
+              <div className="spinner" style={{ marginRight: 10 }} /> Loading...
+            </div>
+          ) : showDetail.html_body ? (
             <iframe
               srcDoc={showDetail.html_body}
               sandbox=""
