@@ -87,14 +87,23 @@ export default async (req) => {
         const getHeader = (name) => headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || ''
 
         let body = ''
-        if (msgData.payload?.body?.data) {
-          body = Buffer.from(msgData.payload.body.data, 'base64url').toString('utf8')
-        } else if (msgData.payload?.parts) {
-          const textPart = msgData.payload.parts.find(p => p.mimeType === 'text/plain')
-          if (textPart?.body?.data) {
-            body = Buffer.from(textPart.body.data, 'base64url').toString('utf8')
+        let htmlBody = ''
+
+        function extractBodies(payload) {
+          if (!payload) return
+          if (payload.mimeType === 'text/html' && payload.body?.data) {
+            htmlBody = Buffer.from(payload.body.data, 'base64url').toString('utf8')
+          }
+          if (payload.mimeType === 'text/plain' && payload.body?.data) {
+            body = Buffer.from(payload.body.data, 'base64url').toString('utf8')
+          }
+          if (payload.parts) {
+            for (const part of payload.parts) {
+              extractBodies(part)
+            }
           }
         }
+        extractBodies(msgData.payload)
 
         // Extract attachment info (don't download yet — on demand)
         const attachments = []
@@ -122,6 +131,7 @@ export default async (req) => {
           subject: getHeader('Subject'),
           date: getHeader('Date'),
           body: body.slice(0, 3000),
+          html_body: htmlBody.slice(0, 50000),
           snippet: msgData.snippet || '',
           attachments
         }

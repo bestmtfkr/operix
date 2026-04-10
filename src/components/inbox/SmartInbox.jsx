@@ -138,6 +138,7 @@ export default function SmartInbox() {
           from_name: quick?.from_name || email.from.split('<')[0].trim(),
           subject: email.subject,
           body: email.body,
+          html_body: email.html_body || null,
           raw_text: `From: ${email.from}\nSubject: ${email.subject}\n\n${email.body}`,
           categories: quick ? [quick.category].filter(Boolean) : ['client'],
           priority: quick?.priority || 'normal',
@@ -235,6 +236,7 @@ export default function SmartInbox() {
             from_name: email.from.split('<')[0].trim(),
             subject: email.subject,
             body: email.body,
+            html_body: email.html_body || null,
             raw_text: `From: ${email.from}\nSubject: ${email.subject}\n\n${email.body}`,
             categories: [],
             priority: 'normal',
@@ -938,16 +940,22 @@ Only return valid JSON.`, 256, 'haiku'
             ) : null
           })()}
 
-          {/* THE EMAIL — shown first, clean readable version */}
-          <div className="email-full-body">
-            {(showDetail.body || showDetail.raw_text || 'No content')
-              .replace(/https?:\/\/[^\s)\]>]+/g, '')
-              .replace(/\([\s]*\)/g, '')
-              .replace(/\[[\s]*\]/g, '')
-              .replace(/\n{3,}/g, '\n\n')
-              .trim()
-              || 'No readable content'}
-          </div>
+          {/* THE EMAIL — render HTML if available, plain text fallback */}
+          {showDetail.html_body ? (
+            <iframe
+              srcDoc={showDetail.html_body}
+              sandbox=""
+              style={{
+                width: '100%', minHeight: 300, maxHeight: '50vh', border: '1px solid var(--border)',
+                borderRadius: 12, background: '#fff'
+              }}
+              onLoad={e => { try { e.target.style.height = Math.min(e.target.contentWindow.document.body.scrollHeight + 20, 600) + 'px' } catch(err){} }}
+            />
+          ) : (
+            <div className="email-full-body">
+              {showDetail.body || showDetail.raw_text || 'No content'}
+            </div>
+          )}
 
           {/* Attachments */}
           {showDetail.metadata?.attachments?.length > 0 && (
