@@ -5,7 +5,7 @@ import { useToast } from '../shared/Toast'
 import Modal from '../shared/Modal'
 import QuotesList from './QuotesList'
 import InvoicePDF from './InvoicePDF'
-import { INVOICE_STATUSES, INVOICE_STATUS_LABELS } from '../../lib/constants'
+import { INVOICE_STATUSES, INVOICE_STATUS_LABELS, TAX_PRESETS } from '../../lib/constants'
 import '../jobs/Jobs.css'
 import './Billing.css'
 
@@ -74,8 +74,37 @@ export default function BillingScreen({ onNavigate }) {
   }
 
   async function loadSettings() {
-    const { data } = await supabase.from('companies').select('settings, qbo_tokens, qbo_settings').eq('id', companyId).single()
-    setCompanySettings(data?.settings || {})
+    const { data } = await supabase
+      .from('companies')
+      .select('settings, qbo_tokens, qbo_settings, province_state, country')
+      .eq('id', companyId)
+      .single()
+
+    let settings = data?.settings || {}
+
+    // Auto-derive taxes from province if missing OR if it's the wrong default
+    // (the old onboarding hardcoded ON/HST 13%; fix it for non-Ontario companies)
+    const code = (data?.province_state || '').toUpperCase().slice(0, 2)
+    const preset = TAX_PRESETS[code]
+    const hasTax = settings.tax_rate_1 != null
+    const looksLikeWrongDefault = hasTax &&
+      settings.tax_label_1 === 'HST' && settings.tax_rate_1 === 0.13 &&
+      code && code !== 'ON' && preset && preset.label1 !== 'HST'
+
+    if ((!hasTax || looksLikeWrongDefault) && preset) {
+      settings = {
+        ...settings,
+        tax_mode: preset.mode,
+        tax_label_1: preset.label1,
+        tax_rate_1: preset.rate1,
+        tax_label_2: preset.label2,
+        tax_rate_2: preset.rate2
+      }
+      // Persist so it stays fixed
+      await supabase.from('companies').update({ settings }).eq('id', companyId)
+    }
+
+    setCompanySettings(settings)
     setQboConnected(!!data?.qbo_tokens?.access_token)
     setQboTokens(data?.qbo_tokens || null)
     setQboSettings(data?.qbo_settings || {})
@@ -249,8 +278,8 @@ export default function BillingScreen({ onNavigate }) {
       internal_notes: form.internal_notes,
       billing_email: form.billing_email || resolveBillingEmail(form.client_id, form.job_id) || null,
       subtotal,
-      tax1_label: companySettings?.tax_label_1 || 'HST',
-      tax1_rate: companySettings?.tax_rate_1 || 0.13,
+      tax1_label: companySettings?.tax_label_1 || null,
+      tax1_rate: companySettings?.tax_rate_1 || 0,
       tax1_amount: tax1,
       tax2_label: companySettings?.tax_label_2 || null,
       tax2_rate: companySettings?.tax_rate_2 || null,
