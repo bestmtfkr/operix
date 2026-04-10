@@ -122,6 +122,7 @@ export default async (req) => {
 }
 
 export const config = {
-  path: '/.netlify/functions/qbo-poll-payments',
-  schedule: '*/15 * * * *' // every 15 min
+  path: '/.netlify/functions/qbo-poll-payments'
+  // To enable scheduled polling, install @netlify/functions and add:
+  // schedule: '*/15 * * * *'
 }
