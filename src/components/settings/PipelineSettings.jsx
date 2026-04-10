@@ -192,15 +192,34 @@ export default function PipelineSettings() {
           }}>{scheduleRule === 'accepted' ? '✓' : ''}</div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700 }}>Only accepted jobs</div>
-            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Jobs must be approved/accepted before scheduling</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Jobs must reach Active stage before scheduling</div>
+          </div>
+        </label>
+
+        <label onClick={() => setScheduleRule('custom')} style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
+          borderRadius: 12, cursor: 'pointer',
+          background: scheduleRule === 'custom' ? 'rgba(0,212,160,0.06)' : 'var(--bg2)',
+          border: `1px solid ${scheduleRule === 'custom' ? 'rgba(0,212,160,0.2)' : 'var(--border)'}`
+        }}>
+          <div style={{
+            width: 18, height: 18, borderRadius: '50%',
+            border: `2px solid ${scheduleRule === 'custom' ? 'var(--primary)' : 'var(--text3)'}`,
+            background: scheduleRule === 'custom' ? 'var(--primary)' : 'transparent',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 10, color: '#000'
+          }}>{scheduleRule === 'custom' ? '✓' : ''}</div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Custom</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Choose exactly which stages allow scheduling</div>
           </div>
         </label>
       </div>
 
-      {scheduleRule === 'accepted' && (
+      {(scheduleRule === 'accepted' || scheduleRule === 'custom') && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, marginBottom: 8 }}>
-            WHICH STAGES COUNT AS "ACCEPTED"?
+            {scheduleRule === 'custom' ? 'WHICH STAGES CAN BE SCHEDULED?' : 'WHICH STAGES COUNT AS "ACCEPTED"?'}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {stages.filter(s => s.enabled).map(stage => {
