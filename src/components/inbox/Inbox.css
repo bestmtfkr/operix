@@ -1,4 +1,4 @@
-/* ─── Inbox shell — two-column with right sidebar ─── */
+/* ─── Inbox shell — 3 columns on desktop: sidebar | list | preview ─── */
 .inbox-shell {
   display: flex;
   flex-direction: row;
@@ -7,14 +7,16 @@
   overflow: hidden;
 }
 .inbox-main {
-  flex: 1;
+  width: 360px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
+  border-right: 1px solid var(--border);
 }
 .inbox-sidebar {
-  width: 280px;
+  width: 240px;
   flex-shrink: 0;
   border-right: 1px solid var(--border);
   background: var(--bg);
@@ -24,6 +26,76 @@
   flex-direction: column;
   gap: 16px;
   order: -1;
+}
+
+/* Preview pane — ~60% of screen */
+.inbox-preview {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--bg);
+}
+.inbox-preview-inner {
+  padding: 24px 32px 32px;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+.inbox-preview-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text3);
+  padding: 40px;
+  text-align: center;
+}
+
+/* Shrink list rows when preview pane is visible */
+@media (min-width: 901px) {
+  .email-row {
+    padding: 10px 14px;
+    gap: 10px;
+  }
+  .email-av {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    max-width: 32px;
+    max-height: 32px;
+    font-size: 13px;
+  }
+  .email-from { font-size: 13px; }
+  .email-subj { font-size: 12px; }
+  .email-snippet {
+    font-size: 11px;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+  }
+  .email-tags { margin-top: 3px; }
+  .etag { font-size: 9px; padding: 1px 5px; }
+  .email-time { font-size: 10px; }
+
+  /* Highlight the currently-selected email in the list */
+  .email-row.selected {
+    background: rgba(0,212,160,0.08);
+  }
+  .email-row.selected::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--primary);
+  }
 }
 
 .sidebar-compose {
@@ -135,7 +207,7 @@
   color: var(--primary);
 }
 
-/* Mobile: stack vertically, sidebar on top as collapsible */
+/* Mobile: stack vertically, sidebar on top */
 @media (max-width: 900px) {
   .inbox-shell {
     flex-direction: column;
@@ -151,8 +223,11 @@
   .inbox-main {
     order: 2;
     flex: 1;
+    width: auto;
     min-height: 0;
+    border-right: none;
   }
+  .inbox-preview { display: none; }
 }
 
 /* Inbox visual overhaul */

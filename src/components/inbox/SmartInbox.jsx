@@ -43,6 +43,14 @@ export default function SmartInbox() {
   // Real composer (to actually send via Gmail)
   const [composer, setComposer] = useState(null) // null | { to, cc, bcc, subject, body, attachments, replyToId, threadId, inReplyTo, references, showCcBcc }
   const [sending, setSending] = useState(false)
+  // Desktop = 3-column layout (sidebar | list | preview). Mobile = modal for detail.
+  const [isDesktop, setIsDesktop] = useState(typeof window !== 'undefined' && window.innerWidth >= 900)
+
+  useEffect(() => {
+    function onResize() { setIsDesktop(window.innerWidth >= 900) }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   useEffect(() => {
     if (companyId) { loadEmails(); loadJobs(); loadClients(); checkGmail(); loadTeamAndConfig() }
@@ -989,6 +997,168 @@ Only return valid JSON.`, 256, 'haiku'
     { id: 'urgent', label: 'Urgent', icon: '🚨' }
   ]
 
+  // Shared email detail content — rendered in mobile Modal OR desktop preview pane
+  const emailDetailContent = showDetail ? (
+    <>
+      {/* Subject + From */}
+      <div style={{ paddingBottom: 14, borderBottom: '1px solid var(--border)', marginBottom: 14 }}>
+        <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.3, marginBottom: 8 }}>{showDetail.subject}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{showDetail.from_name || showDetail.from_address}</span>
+          <span style={{ fontSize: 11, color: 'var(--text3)' }}>{formatEmailDate(showDetail)}</span>
+          {(showDetail.categories || []).map(c => {
+            const s = CAT_COLORS[c] || CAT_COLORS.client
+            return <span key={c} className="etag" style={{ background: s.bg, color: s.color }}>{c.toUpperCase()}</span>
+          })}
+        </div>
+      </div>
+
+      {/* Toolbar */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', paddingBottom: 12, marginBottom: 12, borderBottom: '1px solid var(--border)' }}>
+        {emailConfig.email_assignment && (
+          <select value={showDetail.assigned_to || ''} onChange={e => assignEmail(showDetail.id, e.target.value || null)} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer' }}>
+            <option value="">👤 Assign</option>
+            {teamMembers.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
+          </select>
+        )}
+        {!showDetail.metadata?.linked_job_id && (
+          <select onChange={e => { if (e.target.value) linkEmailToJob(showDetail.id, e.target.value) }} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer' }}>
+            <option value="">🔗 Link to job</option>
+            {jobs.map(j => <option key={j.id} value={j.id}>{j.job_number} — {j.name}</option>)}
+          </select>
+        )}
+        {!showDetail.metadata?.linked_job_id && <button onClick={() => startCreateJobFromEmail(showDetail)} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', cursor: 'pointer', fontFamily: 'DM Sans' }}>+ New Job</button>}
+      </div>
+
+      {/* Linked job */}
+      {showDetail.metadata?.linked_job_id && (() => {
+        const lj = jobs.find(j => j.id === showDetail.metadata.linked_job_id)
+        return lj ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(33,150,243,0.04)', border: '1px solid rgba(33,150,243,0.12)', borderRadius: 10, marginBottom: 14 }}>
+            <span>🔗</span>
+            <div style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{lj.job_number} — {lj.name}</div>
+            <button onClick={() => unlinkEmail(showDetail.id)} style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'DM Sans' }}>Unlink</button>
+          </div>
+        ) : null
+      })()}
+
+      {/* THE EMAIL — render HTML if available, plain text fallback */}
+      {showDetail._bodyLoading ? (
+        <div className="email-full-body" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200, color: 'var(--text3)' }}>
+          <div className="spinner" style={{ marginRight: 10 }} /> Loading...
+        </div>
+      ) : showDetail.html_body ? (
+        <iframe
+          srcDoc={showDetail.html_body}
+          sandbox=""
+          style={{
+            width: '100%', minHeight: 300, maxHeight: '50vh', border: '1px solid var(--border)',
+            borderRadius: 12, background: '#fff'
+          }}
+          onLoad={e => { try { e.target.style.height = Math.min(e.target.contentWindow.document.body.scrollHeight + 20, 600) + 'px' } catch(err){} }}
+        />
+      ) : (
+        <div className="email-full-body">
+          {showDetail.body || showDetail.raw_text || 'No content'}
+        </div>
+      )}
+
+      {/* Attachments */}
+      {showDetail.metadata?.attachments?.length > 0 && (
+        <div className="attach-chips">
+          {showDetail.metadata.attachments.map((att, i) => (
+            <div key={i} className="attach-chip" onClick={() => downloadAttachment(showDetail, att)}>
+              <span>{att.mimeType?.includes('image') ? '🖼️' : att.mimeType?.includes('pdf') ? '📄' : '📎'}</span>
+              <span>{att.filename}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* AI — ON DEMAND */}
+      {!showDetail._aiLoaded && (
+        <button onClick={async () => {
+          setShowDetail(prev => ({ ...prev, _analyzing: true }))
+          const body = (showDetail.body || showDetail.raw_text || '').slice(0, 2000)
+          const fullText = `From: ${showDetail.from_name || showDetail.from_address}\nSubject: ${showDetail.subject}\n\n${body}`
+          const result = await analyzeEmailFull(fullText)
+          if (result) {
+            await supabase.from('inbox_emails').update({ summary: result.summary || '', draft_reply: result.draft_reply || '', metadata: { ...showDetail.metadata, needs_full_analysis: false, extracted_data: result.extracted_data || {} } }).eq('id', showDetail.id)
+            setShowDetail(prev => prev?.id === showDetail.id ? { ...prev, summary: result.summary, draft_reply: result.draft_reply, _aiLoaded: true, _analyzing: false } : prev)
+          } else {
+            setShowDetail(prev => ({ ...prev, _analyzing: false }))
+          }
+        }} disabled={showDetail._analyzing} className="ai-analyze-btn">
+          {showDetail._analyzing ? <><div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Analyzing...</> : '🤖 AI Summary & Draft Reply'}
+        </button>
+      )}
+
+      {showDetail._aiLoaded && showDetail.summary && (
+        <div className="ai-result-box" style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--primary)', letterSpacing: 0.5, marginBottom: 6 }}>🤖 AI SUMMARY</div>
+          <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.7 }}>{showDetail.summary}</div>
+        </div>
+      )}
+
+      {/* Comments */}
+      {emailConfig.email_comments && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, marginBottom: 6 }}>COMMENTS ({(showDetail.comments || []).length})</div>
+          <div className="comments-box">
+            {(showDetail.comments || []).length === 0 ? (
+              <div style={{ padding: 12, textAlign: 'center', fontSize: 11, color: 'var(--text3)' }}>Team-only comments</div>
+            ) : (showDetail.comments || []).map((c, i) => (
+              <div key={i} className="comment-row">
+                <span className="comment-name">{c.user}</span>
+                <span className="comment-date">{new Date(c.time).toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' })}</span>
+                <div className="comment-body">{c.text}</div>
+              </div>
+            ))}
+            <div className="comment-add">
+              <input className="comment-input" value={newComment} onChange={e => setNewComment(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addComment(showDetail.id) }} placeholder="Add comment..." />
+              <button className="comment-send" onClick={() => addComment(showDetail.id)}>💬</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reply */}
+      <div className="reply-box">
+        <div className="reply-header">
+          <span className="reply-label">Reply</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {emailConfig.email_templates && replyTemplates.length > 0 && (
+              <select onChange={e => { if (!e.target.value) return; const tpl = replyTemplates.find(t => t.id === e.target.value); if (tpl) { const el = document.getElementById('reply-area'); if (el) el.value = applyTemplate(tpl, showDetail) } e.target.value = '' }} style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer' }}>
+                <option value="">📝 Templates</option>
+                {replyTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            )}
+            <button onClick={() => { const el = document.getElementById('reply-area'); navigator.clipboard.writeText(el?.value || showDetail.draft_reply || '').then(() => showToast('Copied')) }} style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'DM Sans' }}>📋 Copy</button>
+          </div>
+        </div>
+        <textarea id="reply-area" className="reply-area" defaultValue={showDetail.draft_reply || ''} placeholder="Write a reply..." />
+        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+          <button
+            onClick={() => {
+              const el = document.getElementById('reply-area')
+              const text = el?.value || ''
+              openReplyComposer(showDetail, text)
+            }}
+            disabled={!gmailConnected}
+            style={{ flex: 1, padding: '10px 14px', borderRadius: 8, border: 'none', background: gmailConnected ? 'var(--primary)' : 'var(--card2)', color: gmailConnected ? '#000' : 'var(--text3)', fontSize: 13, fontWeight: 700, cursor: gmailConnected ? 'pointer' : 'not-allowed', fontFamily: 'DM Sans' }}
+          >📤 Send Reply</button>
+        </div>
+        {!gmailConnected && <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>Connect Gmail to send replies directly</div>}
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button className="btn btn-danger btn-full" style={{ padding: 12 }} onClick={() => deleteEmail(showDetail.id)}>Delete</button>
+        {!isDesktop && <button className="btn btn-secondary btn-full" style={{ padding: 12 }} onClick={() => setShowDetail(null)}>Close</button>}
+      </div>
+    </>
+  ) : null
+
   return (
     <div className="inbox-shell">
       {/* LEFT — email list column */}
@@ -1036,7 +1206,7 @@ Only return valid JSON.`, 256, 'haiku'
           const init = (email.from_name || email.from_address || '?').charAt(0).toUpperCase()
 
           return (
-            <div key={email.id} className={`email-row ${email.status === 'unread' ? 'unread' : ''}`} onClick={() => openEmail(email)}>
+            <div key={email.id} className={`email-row ${email.status === 'unread' ? 'unread' : ''} ${showDetail?.id === email.id ? 'selected' : ''}`} onClick={() => openEmail(email)}>
               <div className="email-av" style={{ background: avColors[cat] || '#00D4A0' }}>{init}</div>
               <div className="email-body-wrap">
                 <div className="email-from">{sortMode === 'address' ? (email.metadata?.extracted_data?.address || email.subject) : (email.from_name || email.from_address || 'Unknown')}</div>
@@ -1156,165 +1326,27 @@ Only return valid JSON.`, 256, 'haiku'
         </div>
       </aside>
 
-      {/* EMAIL DETAIL */}
-      {showDetail && (
-        <Modal title={null} onClose={() => setShowDetail(null)}>
-          {/* Subject + From */}
-          <div style={{ paddingBottom: 14, borderBottom: '1px solid var(--border)', marginBottom: 14 }}>
-            <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.3, marginBottom: 8 }}>{showDetail.subject}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, fontWeight: 600 }}>{showDetail.from_name || showDetail.from_address}</span>
-              <span style={{ fontSize: 11, color: 'var(--text3)' }}>{formatEmailDate(showDetail)}</span>
-              {(showDetail.categories || []).map(c => {
-                const s = CAT_COLORS[c] || CAT_COLORS.client
-                return <span key={c} className="etag" style={{ background: s.bg, color: s.color }}>{c.toUpperCase()}</span>
-              })}
+      {/* DESKTOP PREVIEW PANE — takes ~60% of screen */}
+      {isDesktop && (
+        <div className="inbox-preview">
+          {showDetail ? (
+            <div className="inbox-preview-inner">
+              {emailDetailContent}
             </div>
-          </div>
-
-          {/* Toolbar */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', paddingBottom: 12, marginBottom: 12, borderBottom: '1px solid var(--border)' }}>
-            {emailConfig.email_assignment && (
-              <select value={showDetail.assigned_to || ''} onChange={e => assignEmail(showDetail.id, e.target.value || null)} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer' }}>
-                <option value="">👤 Assign</option>
-                {teamMembers.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
-              </select>
-            )}
-            {!showDetail.metadata?.linked_job_id && (
-              <select onChange={e => { if (e.target.value) linkEmailToJob(showDetail.id, e.target.value) }} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer' }}>
-                <option value="">🔗 Link to job</option>
-                {jobs.map(j => <option key={j.id} value={j.id}>{j.job_number} — {j.name}</option>)}
-              </select>
-            )}
-            {!showDetail.metadata?.linked_job_id && <button onClick={() => startCreateJobFromEmail(showDetail)} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', cursor: 'pointer', fontFamily: 'DM Sans' }}>+ New Job</button>}
-          </div>
-
-          {/* Linked job */}
-          {showDetail.metadata?.linked_job_id && (() => {
-            const lj = jobs.find(j => j.id === showDetail.metadata.linked_job_id)
-            return lj ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(33,150,243,0.04)', border: '1px solid rgba(33,150,243,0.12)', borderRadius: 10, marginBottom: 14 }}>
-                <span>🔗</span>
-                <div style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{lj.job_number} — {lj.name}</div>
-                <button onClick={() => unlinkEmail(showDetail.id)} style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'DM Sans' }}>Unlink</button>
-              </div>
-            ) : null
-          })()}
-
-          {/* THE EMAIL — render HTML if available, plain text fallback */}
-          {showDetail._bodyLoading ? (
-            <div className="email-full-body" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200, color: 'var(--text3)' }}>
-              <div className="spinner" style={{ marginRight: 10 }} /> Loading...
-            </div>
-          ) : showDetail.html_body ? (
-            <iframe
-              srcDoc={showDetail.html_body}
-              sandbox=""
-              style={{
-                width: '100%', minHeight: 300, maxHeight: '50vh', border: '1px solid var(--border)',
-                borderRadius: 12, background: '#fff'
-              }}
-              onLoad={e => { try { e.target.style.height = Math.min(e.target.contentWindow.document.body.scrollHeight + 20, 600) + 'px' } catch(err){} }}
-            />
           ) : (
-            <div className="email-full-body">
-              {showDetail.body || showDetail.raw_text || 'No content'}
+            <div className="inbox-preview-empty">
+              <div style={{ fontSize: 48, marginBottom: 12 }}>📬</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text2)', marginBottom: 4 }}>Select an email</div>
+              <div style={{ fontSize: 12, color: 'var(--text3)' }}>Click any email in the list to preview it here</div>
             </div>
           )}
+        </div>
+      )}
 
-          {/* Attachments */}
-          {showDetail.metadata?.attachments?.length > 0 && (
-            <div className="attach-chips">
-              {showDetail.metadata.attachments.map((att, i) => (
-                <div key={i} className="attach-chip" onClick={() => downloadAttachment(showDetail, att)}>
-                  <span>{att.mimeType?.includes('image') ? '🖼️' : att.mimeType?.includes('pdf') ? '📄' : '📎'}</span>
-                  <span>{att.filename}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* AI — ON DEMAND */}
-          {!showDetail._aiLoaded && (
-            <button onClick={async () => {
-              setShowDetail(prev => ({ ...prev, _analyzing: true }))
-              const body = (showDetail.body || showDetail.raw_text || '').slice(0, 2000)
-              const fullText = `From: ${showDetail.from_name || showDetail.from_address}\nSubject: ${showDetail.subject}\n\n${body}`
-              const result = await analyzeEmailFull(fullText)
-              if (result) {
-                await supabase.from('inbox_emails').update({ summary: result.summary || '', draft_reply: result.draft_reply || '', metadata: { ...showDetail.metadata, needs_full_analysis: false, extracted_data: result.extracted_data || {} } }).eq('id', showDetail.id)
-                setShowDetail(prev => prev?.id === showDetail.id ? { ...prev, summary: result.summary, draft_reply: result.draft_reply, _aiLoaded: true, _analyzing: false } : prev)
-              } else {
-                setShowDetail(prev => ({ ...prev, _analyzing: false }))
-              }
-            }} disabled={showDetail._analyzing} className="ai-analyze-btn">
-              {showDetail._analyzing ? <><div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Analyzing...</> : '🤖 AI Summary & Draft Reply'}
-            </button>
-          )}
-
-          {showDetail._aiLoaded && showDetail.summary && (
-            <div className="ai-result-box" style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--primary)', letterSpacing: 0.5, marginBottom: 6 }}>🤖 AI SUMMARY</div>
-              <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.7 }}>{showDetail.summary}</div>
-            </div>
-          )}
-
-          {/* Comments */}
-          {emailConfig.email_comments && (
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, marginBottom: 6 }}>COMMENTS ({(showDetail.comments || []).length})</div>
-              <div className="comments-box">
-                {(showDetail.comments || []).length === 0 ? (
-                  <div style={{ padding: 12, textAlign: 'center', fontSize: 11, color: 'var(--text3)' }}>Team-only comments</div>
-                ) : (showDetail.comments || []).map((c, i) => (
-                  <div key={i} className="comment-row">
-                    <span className="comment-name">{c.user}</span>
-                    <span className="comment-date">{new Date(c.time).toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' })}</span>
-                    <div className="comment-body">{c.text}</div>
-                  </div>
-                ))}
-                <div className="comment-add">
-                  <input className="comment-input" value={newComment} onChange={e => setNewComment(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addComment(showDetail.id) }} placeholder="Add comment..." />
-                  <button className="comment-send" onClick={() => addComment(showDetail.id)}>💬</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Reply */}
-          <div className="reply-box">
-            <div className="reply-header">
-              <span className="reply-label">Reply</span>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {emailConfig.email_templates && replyTemplates.length > 0 && (
-                  <select onChange={e => { if (!e.target.value) return; const tpl = replyTemplates.find(t => t.id === e.target.value); if (tpl) { const el = document.getElementById('reply-area'); if (el) el.value = applyTemplate(tpl, showDetail) } e.target.value = '' }} style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer' }}>
-                    <option value="">📝 Templates</option>
-                    {replyTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
-                )}
-                <button onClick={() => { const el = document.getElementById('reply-area'); navigator.clipboard.writeText(el?.value || showDetail.draft_reply || '').then(() => showToast('Copied')) }} style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'DM Sans' }}>📋 Copy</button>
-              </div>
-            </div>
-            <textarea id="reply-area" className="reply-area" defaultValue={showDetail.draft_reply || ''} placeholder="Write a reply..." />
-            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-              <button
-                onClick={() => {
-                  const el = document.getElementById('reply-area')
-                  const text = el?.value || ''
-                  openReplyComposer(showDetail, text)
-                }}
-                disabled={!gmailConnected}
-                style={{ flex: 1, padding: '10px 14px', borderRadius: 8, border: 'none', background: gmailConnected ? 'var(--primary)' : 'var(--card2)', color: gmailConnected ? '#000' : 'var(--text3)', fontSize: 13, fontWeight: 700, cursor: gmailConnected ? 'pointer' : 'not-allowed', fontFamily: 'DM Sans' }}
-              >📤 Send Reply</button>
-            </div>
-            {!gmailConnected && <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>Connect Gmail to send replies directly</div>}
-          </div>
-
-          {/* Actions */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button className="btn btn-danger btn-full" style={{ padding: 12 }} onClick={() => deleteEmail(showDetail.id)}>Delete</button>
-            <button className="btn btn-secondary btn-full" style={{ padding: 12 }} onClick={() => setShowDetail(null)}>Close</button>
-          </div>
+      {/* EMAIL DETAIL — Modal on mobile only */}
+      {showDetail && !isDesktop && (
+        <Modal title={null} onClose={() => setShowDetail(null)}>
+          {emailDetailContent}
         </Modal>
       )}
 
