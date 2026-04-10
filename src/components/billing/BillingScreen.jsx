@@ -30,9 +30,11 @@ export default function BillingScreen() {
 
   const [form, setForm] = useState({
     client_id: '', job_id: '', status: 'draft', issue_date: '',
-    due_date: '', notes: '', internal_notes: ''
+    due_date: '', notes: '', internal_notes: '', billing_email: ''
   })
   const [companySettings, setCompanySettings] = useState(null)
+  const [qboConnected, setQboConnected] = useState(false)
+  const [pushingQbo, setPushingQbo] = useState(false)
 
   useEffect(() => {
     if (companyId) { loadInvoices(); loadClients(); loadJobs(); loadSettings() }
@@ -50,20 +52,87 @@ export default function BillingScreen() {
   }
 
   async function loadClients() {
-    const { data } = await supabase.from('clients').select('id, name')
+    const { data } = await supabase.from('clients').select('id, name, contact_email, billing_email')
       .eq('company_id', companyId).is('archived_at', null).order('name')
     setClients(data || [])
   }
 
   async function loadJobs() {
-    const { data } = await supabase.from('jobs').select('id, name, job_number, client_id')
+    const { data } = await supabase.from('jobs').select('id, name, job_number, client_id, billing_email')
       .eq('company_id', companyId).is('archived_at', null).order('created_at', { ascending: false })
     setJobs(data || [])
   }
 
+  // Resolve billing email: job override > client billing > client contact
+  function resolveBillingEmail(clientId, jobId) {
+    const job = jobs.find(j => j.id === jobId)
+    if (job?.billing_email) return job.billing_email
+    const client = clients.find(c => c.id === clientId)
+    return client?.billing_email || client?.contact_email || ''
+  }
+
   async function loadSettings() {
-    const { data } = await supabase.from('companies').select('settings').eq('id', companyId).single()
+    const { data } = await supabase.from('companies').select('settings, qbo_tokens').eq('id', companyId).single()
     setCompanySettings(data?.settings || {})
+    setQboConnected(!!data?.qbo_tokens?.access_token)
+  }
+
+  async function refreshQboPayment() {
+    if (!editing) return
+    setPushingQbo(true)
+    try {
+      const res = await fetch('/.netlify/functions/qbo-poll-payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company_id: companyId, invoice_id: editing.id })
+      })
+      const data = await res.json()
+      if (data.error) {
+        showToast('Refresh failed: ' + data.error)
+      } else {
+        showToast(data.updated_invoices > 0 ? 'Payment status updated' : 'No changes')
+        loadInvoices()
+        const { data: refreshed } = await supabase.from('invoices').select('*').eq('id', editing.id).single()
+        if (refreshed) setEditing(refreshed)
+      }
+    } catch (err) {
+      showToast('Refresh error: ' + err.message)
+    }
+    setPushingQbo(false)
+  }
+
+  async function pushToQbo(sendNow = false) {
+    if (!editing) return
+    setPushingQbo(true)
+    try {
+      // Save first if there are unsaved changes
+      const res = await fetch('/.netlify/functions/qbo-push-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: companyId,
+          invoice_id: editing.id,
+          send_now: sendNow
+        })
+      })
+      const data = await res.json()
+      if (data.error) {
+        showToast('Push failed: ' + data.error)
+      } else {
+        showToast(
+          data.sent
+            ? `Sent from QBO to ${data.billing_email}`
+            : 'Pushed to QuickBooks as draft'
+        )
+        loadInvoices()
+        // Refresh editing record so the badge appears
+        const { data: refreshed } = await supabase.from('invoices').select('*').eq('id', editing.id).single()
+        if (refreshed) setEditing(refreshed)
+      }
+    } catch (err) {
+      showToast('Push error: ' + err.message)
+    }
+    setPushingQbo(false)
   }
 
   async function loadLines(invoiceId) {
@@ -79,7 +148,8 @@ export default function BillingScreen() {
       .toISOString().split('T')[0]
     setForm({
       client_id: '', job_id: '', status: 'draft',
-      issue_date: today, due_date: dueDate, notes: '', internal_notes: ''
+      issue_date: today, due_date: dueDate, notes: '', internal_notes: '',
+      billing_email: ''
     })
     setLines([{ id: 'new-1', line_type: 'service', description: '', quantity: 1, unit: 'each', unit_price: '', taxable: true }])
     setShowModal(true)
@@ -94,7 +164,8 @@ export default function BillingScreen() {
       issue_date: invoice.issue_date || '',
       due_date: invoice.due_date || '',
       notes: invoice.notes || '',
-      internal_notes: invoice.internal_notes || ''
+      internal_notes: invoice.internal_notes || '',
+      billing_email: invoice.billing_email || ''
     })
     await loadLines(invoice.id)
     setShowModal(true)
@@ -151,6 +222,7 @@ export default function BillingScreen() {
       due_date: form.due_date,
       notes: form.notes,
       internal_notes: form.internal_notes,
+      billing_email: form.billing_email || resolveBillingEmail(form.client_id, form.job_id) || null,
       subtotal,
       tax1_label: companySettings?.tax_label_1 || 'HST',
       tax1_rate: companySettings?.tax_rate_1 || 0.13,
@@ -309,9 +381,17 @@ export default function BillingScreen() {
                 </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="badge" style={{ background: STATUS_COLORS[inv.status] + '18', color: STATUS_COLORS[inv.status] }}>
-                  {INVOICE_STATUS_LABELS[inv.status]}
-                </span>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span className="badge" style={{ background: STATUS_COLORS[inv.status] + '18', color: STATUS_COLORS[inv.status] }}>
+                    {INVOICE_STATUS_LABELS[inv.status]}
+                  </span>
+                  {inv.qbo_invoice_id && (
+                    <span className="badge" style={{ background: 'rgba(0,212,160,0.12)', color: 'var(--primary)', fontSize: 9 }}>QBO</span>
+                  )}
+                  {inv.qbo_sync_error && (
+                    <span className="badge" style={{ background: 'rgba(255,59,92,0.12)', color: 'var(--red)', fontSize: 9 }}>QBO ERR</span>
+                  )}
+                </div>
                 {inv.amount_due > 0 && inv.status !== 'paid' && (
                   <span style={{ fontSize: 12, color: 'var(--text2)' }}>
                     Due: ${parseFloat(inv.amount_due).toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -367,6 +447,28 @@ export default function BillingScreen() {
             <select className="form-input" value={form.status} onChange={e => updateForm('status', e.target.value)}>
               {INVOICE_STATUSES.map(s => <option key={s} value={s}>{INVOICE_STATUS_LABELS[s]}</option>)}
             </select>
+          </div>
+
+          {/* Billing email — resolves from job > client > contact, but can be overridden here */}
+          <div className="form-field">
+            <label className="form-label">
+              Billing Email
+              <span style={{ color: 'var(--text3)', fontWeight: 400, marginLeft: 6 }}>
+                (where this invoice gets sent — auto-filled from job/client)
+              </span>
+            </label>
+            <input
+              className="form-input"
+              type="email"
+              placeholder={resolveBillingEmail(form.client_id, form.job_id) || 'billing@client.com'}
+              value={form.billing_email}
+              onChange={e => updateForm('billing_email', e.target.value)}
+            />
+            {!form.billing_email && resolveBillingEmail(form.client_id, form.job_id) && (
+              <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>
+                Will use: <strong>{resolveBillingEmail(form.client_id, form.job_id)}</strong>
+              </div>
+            )}
           </div>
 
           {/* Line Items */}
@@ -477,6 +579,63 @@ export default function BillingScreen() {
             }} onClick={() => { setShowModal(false); setViewPdfId(editing.id) }}>
               🖨 Preview / Print Invoice
             </button>
+          )}
+
+          {/* QuickBooks push */}
+          {editing && qboConnected && (
+            <div style={{ marginTop: 12, padding: 12, background: 'var(--bg2)', borderRadius: 12, border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                📊 QuickBooks
+              </div>
+              {editing.qbo_invoice_id ? (
+                <div style={{ fontSize: 12, color: 'var(--primary)', marginBottom: 8 }}>
+                  ✓ Synced — QBO #{editing.qbo_invoice_id}
+                  {editing.qbo_pushed_at && <span style={{ color: 'var(--text3)', marginLeft: 6 }}>({new Date(editing.qbo_pushed_at).toLocaleDateString('en-CA')})</span>}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 8 }}>
+                  Not yet pushed to QuickBooks
+                </div>
+              )}
+              {editing.qbo_sync_error && (
+                <div style={{ fontSize: 11, color: 'var(--red)', marginBottom: 8, padding: 8, background: 'rgba(255,59,92,0.08)', borderRadius: 6 }}>
+                  ⚠ {editing.qbo_sync_error}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  onClick={() => pushToQbo(false)}
+                  disabled={pushingQbo}
+                  style={{ flex: 1, padding: '10px 12px', borderRadius: 8, background: 'var(--primary)', border: 'none', color: '#000', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'DM Sans' }}
+                >
+                  {pushingQbo ? '⏳' : (editing.qbo_invoice_id ? '🔄 Re-push' : '📤 Push as Draft')}
+                </button>
+                <button
+                  onClick={() => pushToQbo(true)}
+                  disabled={pushingQbo}
+                  style={{ flex: 1, padding: '10px 12px', borderRadius: 8, background: 'rgba(33,150,243,0.1)', border: '1px solid rgba(33,150,243,0.3)', color: 'var(--blue)', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'DM Sans' }}
+                >
+                  {pushingQbo ? '⏳' : '📧 Push & Send'}
+                </button>
+              </div>
+              {editing.qbo_invoice_id && (
+                <button
+                  onClick={refreshQboPayment}
+                  disabled={pushingQbo}
+                  style={{ width: '100%', marginTop: 6, padding: '8px', borderRadius: 8, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text3)', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans' }}
+                >
+                  {pushingQbo ? '⏳' : '↻ Check payment status now'}
+                </button>
+              )}
+              <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 6 }}>
+                Push as Draft = lands in QBO for review. Push & Send = QBO emails the invoice immediately. Payments auto-sync every 15 minutes.
+              </div>
+            </div>
+          )}
+          {editing && !qboConnected && (
+            <div style={{ marginTop: 12, padding: 10, background: 'var(--bg2)', borderRadius: 8, fontSize: 11, color: 'var(--text3)' }}>
+              💡 Connect QuickBooks in Settings to push invoices
+            </div>
           )}
           <button className="btn btn-secondary btn-full" style={{ marginTop: 8 }} onClick={() => setShowModal(false)}>
             Cancel

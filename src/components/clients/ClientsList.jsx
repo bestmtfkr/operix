@@ -20,7 +20,8 @@ export default function ClientsList() {
   // Form state
   const [form, setForm] = useState({
     name: '', type: 'commercial', contact_name: '', contact_email: '',
-    contact_phone: '', billing_address_line1: '', billing_city: '',
+    contact_phone: '', billing_email: '',
+    billing_address_line1: '', billing_city: '',
     billing_province_state: '', billing_postal_zip: '', notes: '', is_large: false
   })
 
@@ -51,7 +52,8 @@ export default function ClientsList() {
     setEditing(null)
     setForm({
       name: '', type: 'commercial', contact_name: '', contact_email: '',
-      contact_phone: '', billing_address_line1: '', billing_city: '',
+      contact_phone: '', billing_email: '',
+      billing_address_line1: '', billing_city: '',
       billing_province_state: '', billing_postal_zip: '', notes: ''
     })
     setShowModal(true)
@@ -65,6 +67,7 @@ export default function ClientsList() {
       contact_name: client.contact_name || '',
       contact_email: client.contact_email || '',
       contact_phone: client.contact_phone || '',
+      billing_email: client.billing_email || '',
       billing_address_line1: client.billing_address_line1 || '',
       billing_city: client.billing_city || '',
       billing_province_state: client.billing_province_state || '',
@@ -233,6 +236,12 @@ export default function ClientsList() {
             <label className="form-label">Email</label>
             <input className="form-input" type="email" placeholder="contact@company.com"
               value={form.contact_email} onChange={e => updateForm('contact_email', e.target.value)} />
+          </div>
+
+          <div className="form-field">
+            <label className="form-label">Billing Email <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(invoices go here — defaults to contact email)</span></label>
+            <input className="form-input" type="email" placeholder="billing@company.com"
+              value={form.billing_email} onChange={e => updateForm('billing_email', e.target.value)} />
           </div>
 
           <div className="form-field">

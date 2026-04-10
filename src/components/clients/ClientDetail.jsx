@@ -38,6 +38,7 @@ export default function ClientDetail({ clientId, onBack, onOpenJob }) {
       name: client.name || '', type: client.type || 'commercial',
       contact_name: client.contact_name || '', contact_email: client.contact_email || '',
       contact_phone: client.contact_phone || '',
+      billing_email: client.billing_email || '',
       billing_address_line1: client.billing_address_line1 || '',
       billing_city: client.billing_city || '',
       billing_province_state: client.billing_province_state || '',
@@ -302,6 +303,10 @@ export default function ClientDetail({ clientId, onBack, onOpenJob }) {
           <div className="form-field">
             <label className="form-label">Email</label>
             <input className="form-input" value={editForm.contact_email} onChange={e => updateEdit('contact_email', e.target.value)} />
+          </div>
+          <div className="form-field">
+            <label className="form-label">Billing Email <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(where invoices are sent — defaults to contact email if blank)</span></label>
+            <input className="form-input" type="email" placeholder="billing@client.com" value={editForm.billing_email} onChange={e => updateEdit('billing_email', e.target.value)} />
           </div>
           <div className="form-field">
             <label className="form-label">Address</label>

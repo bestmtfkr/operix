@@ -30,7 +30,7 @@ export default function JobDetail({ jobId, onBack }) {
 
   async function loadAll() {
     const [jobRes, workersRes, allWRes, timeRes, tasksRes, invRes, actRes] = await Promise.all([
-      supabase.from('jobs').select('*, clients(name, contact_phone, contact_email)').eq('id', jobId).single(),
+      supabase.from('jobs').select('*, clients(name, contact_phone, contact_email, billing_email)').eq('id', jobId).single(),
       supabase.from('job_workers').select('*, workers(first_name, last_name, role, hourly_rate, phone)').eq('job_id', jobId).is('removed_at', null),
       supabase.from('workers').select('id, first_name, last_name, role').eq('company_id', companyId).is('archived_at', null),
       supabase.from('time_entries').select('*, workers(first_name, last_name)').eq('job_id', jobId).order('date', { ascending: false }),
@@ -115,6 +115,7 @@ export default function JobDetail({ jobId, onBack }) {
       insurance_claim_number: job.insurance_claim_number || '',
       insurance_company: job.insurance_company || '',
       unit_numbers: job.unit_numbers || '',
+      billing_email: job.billing_email || '',
       notes: job.notes || ''
     })
     setShowEditModal(true)
@@ -688,6 +689,10 @@ export default function JobDetail({ jobId, onBack }) {
               <label className="form-label">Claim #</label>
               <input className="form-input" value={editForm.insurance_claim_number} onChange={e => updateEdit('insurance_claim_number', e.target.value)} />
             </div>
+          </div>
+          <div className="form-field">
+            <label className="form-label">Billing Email <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(override for this job — leave blank to use the client default)</span></label>
+            <input className="form-input" type="email" placeholder={job.clients?.billing_email || job.clients?.contact_email || 'billing@client.com'} value={editForm.billing_email || ''} onChange={e => updateEdit('billing_email', e.target.value)} />
           </div>
           <div className="form-field">
             <label className="form-label">Description</label>

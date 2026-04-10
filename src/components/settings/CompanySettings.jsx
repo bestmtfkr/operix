@@ -6,6 +6,7 @@ import { TAX_PRESETS } from '../../lib/constants'
 import ChecklistTemplates from './ChecklistTemplates'
 import PipelineSettings from './PipelineSettings'
 import EmailSettings from '../inbox/EmailSettings'
+import QuickBooksSettings from './QuickBooksSettings'
 
 export default function CompanySettings({ onNavigate }) {
   const { companyId, profile, signOut } = useAuth()
@@ -232,6 +233,11 @@ export default function CompanySettings({ onNavigate }) {
             await supabase.from('companies').update({ settings: updated }).eq('id', companyId)
             setSettings(updated)
           }} />
+        </div>
+
+        {/* QuickBooks */}
+        <div style={{ marginTop: 24 }}>
+          <QuickBooksSettings />
         </div>
 
         {/* Pipeline Settings */}
