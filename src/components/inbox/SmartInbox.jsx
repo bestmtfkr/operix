@@ -4,6 +4,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../shared/Toast'
 import Modal from '../shared/Modal'
 import { categorizeEmail, analyzeEmailFull, askAIJSON } from '../../lib/ai'
+import './Inbox.css'
 
 const CAT_COLORS = {
   insurance: { bg: 'rgba(139,92,246,0.12)', color: '#8B5CF6' },
