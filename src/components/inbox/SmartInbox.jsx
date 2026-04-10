@@ -778,687 +778,294 @@ Only return valid JSON.`, 256, 'haiku'
     return 0
   })
 
+  const avColors = { insurance: '#8B5CF6', urgent: '#FF3B5C', supplier: '#2196F3', pm: '#FF6B35', client: '#00D4A0', internal: '#7A8799' }
+
   if (loading) return <div className="loading-center"><div className="spinner" /></div>
 
   return (
-    <div>
-      <div className="page-header">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Top bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div>
-          <div className="page-title">AI Smart Inbox</div>
-          <div className="page-subtitle">{totalEmails.toLocaleString()} emails · Page {emailPage + 1} of {Math.ceil(totalEmails / PAGE_SIZE)}</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>Inbox</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)' }}>{totalEmails.toLocaleString()} emails</div>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {!gmailConnected && <button onClick={connectGmail} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600, border: '1px solid rgba(0,212,160,0.2)', background: 'transparent', color: 'var(--primary)', cursor: 'pointer', fontFamily: 'DM Sans' }}>📧 Connect Gmail</button>}
+          {gmailConnected && <>
+            <span style={{ fontSize: 10, color: 'var(--text3)', alignSelf: 'center' }}>📧 {gmailEmail}</span>
+            <button onClick={() => fetchGmailEmails(false)} disabled={syncing} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'DM Sans' }}>{syncing ? '⏳' : '🔄'}</button>
+            <button onClick={() => { console.log('IMPORT CLICKED'); bulkImport() }} disabled={importing} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'DM Sans' }}>{importing ? '⏳' : '📥'}</button>
+          </>}
         </div>
       </div>
 
-      {/* Gmail Connection */}
-      <div style={{ padding: '0 16px 8px' }}>
-        {gmailConnected ? (
-          <div>
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              background: 'rgba(0,212,160,0.04)', border: '1px solid rgba(0,212,160,0.15)',
-              borderRadius: 14, padding: '10px 14px', marginBottom: importing ? 8 : 0
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 16 }}>✅</span>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)' }}>Gmail Connected</div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)' }}>{gmailEmail}</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => { console.log('IMPORT CLICKED'); bulkImport() }} disabled={importing} style={{
-                  padding: '8px 12px', borderRadius: 10, fontSize: 11, fontWeight: 700,
-                  background: 'var(--card)', border: '1px solid var(--border)',
-                  color: 'var(--text2)', cursor: 'pointer', fontFamily: 'DM Sans'
-                }}>{importing ? '⏳' : '📥 Import'}</button>
-                <button onClick={() => fetchGmailEmails(false)} disabled={syncing || importing} style={{
-                  padding: '8px 12px', borderRadius: 10, fontSize: 11, fontWeight: 700,
-                  background: 'var(--card)', border: '1px solid var(--border)',
-                  color: 'var(--text2)', cursor: 'pointer', fontFamily: 'DM Sans'
-                }}>{syncing ? '⏳' : '🔄'}</button>
-              </div>
-            </div>
-            {importing && (
-              <div style={{
-                background: 'var(--card)', border: '1px solid rgba(0,212,160,0.15)',
-                borderRadius: 12, padding: '12px 14px'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)' }}>Importing emails...</span>
-                  <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-                    {importProgress.done}{importProgress.total ? ` / ~${importProgress.total}` : ''}
-                  </span>
-                </div>
-                <div style={{ height: 4, background: 'var(--bg2)', borderRadius: 2, overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%', borderRadius: 2,
-                    background: 'linear-gradient(90deg, var(--primary), var(--primary2))',
-                    width: importProgress.total ? `${Math.min((importProgress.done / importProgress.total) * 100, 100)}%` : '30%',
-                    transition: 'width 0.3s'
-                  }} />
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <button onClick={connectGmail} style={{
-            width: '100%', padding: 14, borderRadius: 14,
-            background: 'linear-gradient(135deg, rgba(0,212,160,0.08), rgba(0,153,255,0.08))',
-            border: '1px solid rgba(0,212,160,0.2)', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-            fontFamily: 'DM Sans', fontSize: 14, fontWeight: 700, color: 'var(--primary)'
-          }}>📧 Connect Gmail — emails sync automatically</button>
-        )}
-      </div>
-
-      {/* Paste email (always available) */}
-      {!showCompose ? (
-        <div style={{ padding: '0 16px 8px' }}>
-          <button onClick={() => setShowCompose(true)} style={{
-            width: '100%', padding: 12, borderRadius: 12,
-            background: 'var(--card)', border: '1px solid var(--border)', cursor: 'pointer',
-            fontSize: 12, fontWeight: 700, color: 'var(--text2)', fontFamily: 'DM Sans'
-          }}>📋 Or paste an email manually</button>
+      {importing && <div style={{ padding: '6px 20px', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--primary)', marginBottom: 4 }}>
+          <span>Importing...</span><span>{importProgress.done}{importProgress.total ? ` / ~${importProgress.total}` : ''}</span>
         </div>
-      ) : (
-        <div style={{ margin: '0 16px 8px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 16, padding: 14 }}>
-          <textarea style={{
-            width: '100%', background: 'var(--bg2)', border: '1px solid var(--border2)',
-            borderRadius: 12, padding: 12, fontSize: 13, color: 'var(--text)',
-            fontFamily: 'DM Sans', outline: 'none', resize: 'none', minHeight: 100, lineHeight: 1.6
-          }} placeholder="Paste email text..." value={inputText} onChange={e => setInputText(e.target.value)} />
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button onClick={analyzeAndSave} disabled={analyzing} style={{
-              flex: 1, padding: 10, borderRadius: 10,
-              background: analyzing ? 'var(--card2)' : 'linear-gradient(135deg, var(--primary), var(--primary2))',
-              border: 'none', color: analyzing ? 'var(--text2)' : '#000', fontSize: 12, fontWeight: 800,
-              cursor: 'pointer', fontFamily: 'DM Sans'
-            }}>{analyzing ? '⏳ Analyzing...' : '🤖 Analyze'}</button>
-            <button onClick={() => setShowCompose(false)} style={{
-              padding: '10px 14px', borderRadius: 10, background: 'var(--card2)',
-              border: '1px solid var(--border)', color: 'var(--text2)', fontSize: 12,
-              cursor: 'pointer', fontFamily: 'DM Sans'
-            }}>Cancel</button>
-          </div>
-        </div>
-      )}
+        <div style={{ height: 3, background: 'var(--bg2)', borderRadius: 2 }}><div style={{ height: '100%', borderRadius: 2, background: 'var(--primary)', width: importProgress.total ? `${Math.min((importProgress.done / importProgress.total) * 100, 100)}%` : '30%' }} /></div>
+      </div>}
 
-      {/* Tabs: Inbox | Suggestions | Linked */}
-      <div style={{ display: 'flex', gap: 0, margin: '0 16px 8px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-        {[
-          { id: 'inbox', label: `Inbox (${emails.length})` },
-          { id: 'suggestions', label: `Sort (${suggestions.length})` },
-          { id: 'linked', label: `Linked (${linked.length})` }
-        ].map(t => (
+      {/* Tabs */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+        {[{ id: 'inbox', label: 'Inbox', count: emails.length }, { id: 'suggestions', label: 'Sort', count: suggestions.length }, { id: 'linked', label: 'Linked', count: linked.length }].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
-            flex: 1, padding: 10, fontSize: 12, fontWeight: 800,
-            border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
-            background: tab === t.id ? 'rgba(0,212,160,0.1)' : 'transparent',
-            color: tab === t.id ? 'var(--primary)' : 'var(--text2)'
-          }}>{t.label}</button>
+            flex: 1, padding: '10px', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
+            background: 'transparent', color: tab === t.id ? 'var(--text)' : 'var(--text3)',
+            borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent'
+          }}>{t.label} <span style={{ fontSize: 11, color: 'var(--text3)' }}>({t.count})</span></button>
         ))}
       </div>
 
-      {/* Search */}
-      <div className="search-bar">
-        <span className="search-icon">🔍</span>
-        <input placeholder="Search emails..." value={emailSearch} onChange={e => setEmailSearch(e.target.value)} />
-      </div>
-
-      {/* Sort + View + Category filters */}
-      <div style={{ display: 'flex', gap: 8, padding: '0 16px 8px', alignItems: 'center' }}>
-        {/* View mode */}
-        <div style={{ display: 'flex', gap: 0, background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', flexShrink: 0 }}>
-          <button onClick={() => setSortMode('address')} style={{
-            padding: '6px 10px', fontSize: 10, fontWeight: 700,
-            border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
-            background: sortMode === 'address' ? 'rgba(0,212,160,0.1)' : 'transparent',
-            color: sortMode === 'address' ? 'var(--primary)' : 'var(--text3)'
-          }}>📍</button>
-          <button onClick={() => setSortMode('name')} style={{
-            padding: '6px 10px', fontSize: 10, fontWeight: 700,
-            border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
-            background: sortMode === 'name' ? 'rgba(0,212,160,0.1)' : 'transparent',
-            color: sortMode === 'name' ? 'var(--primary)' : 'var(--text3)'
-          }}>👤</button>
+      {/* Search + filters */}
+      <div style={{ display: 'flex', gap: 6, padding: '8px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0, alignItems: 'center', overflowX: 'auto', scrollbarWidth: 'none' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 120 }}>
+          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: 'var(--text3)' }}>🔍</span>
+          <input value={emailSearch} onChange={e => setEmailSearch(e.target.value)} placeholder="Search..." style={{
+            width: '100%', padding: '7px 10px 7px 30px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text)', outline: 'none', fontFamily: 'DM Sans'
+          }} />
         </div>
-
-        {/* Sort order */}
-        <select value={emailSort} onChange={e => setEmailSort(e.target.value)} style={{
-          background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8,
-          padding: '6px 8px', fontSize: 10, color: 'var(--text2)', outline: 'none',
-          fontFamily: 'DM Sans', cursor: 'pointer', flexShrink: 0
-        }}>
-          <option value="newest">Newest</option>
-          <option value="oldest">Oldest</option>
-          <option value="name_az">Name A-Z</option>
-          <option value="name_za">Name Z-A</option>
-          <option value="unread">Unread first</option>
-          <option value="priority">Priority</option>
+        <select value={emailSort} onChange={e => setEmailSort(e.target.value)} style={{ padding: '6px 8px', borderRadius: 6, fontSize: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer' }}>
+          <option value="newest">Newest</option><option value="oldest">Oldest</option><option value="name_az">A-Z</option><option value="name_za">Z-A</option><option value="unread">Unread</option><option value="priority">Priority</option>
         </select>
-
-        {/* Category filters — scrollable */}
-        <div style={{ display: 'flex', gap: 4, overflowX: 'auto', scrollbarWidth: 'none', flex: 1 }}>
-          {['all', 'unread', 'insurance', 'client', 'supplier', 'urgent'].map(f => (
-            <div key={f} onClick={() => setFilter(f)} style={{
-              padding: '5px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700,
-              cursor: 'pointer', whiteSpace: 'nowrap',
-              border: `1px solid ${filter === f ? 'rgba(0,212,160,0.3)' : 'var(--border)'}`,
-              background: filter === f ? 'rgba(0,212,160,0.1)' : 'var(--card)',
-              color: filter === f ? 'var(--primary)' : 'var(--text3)'
-            }}>{f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}</div>
-          ))}
-        </div>
+        {['all','unread','insurance','client','supplier','urgent'].map(f => (
+          <button key={f} onClick={() => setFilter(f)} style={{
+            padding: '5px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', fontFamily: 'DM Sans',
+            border: filter === f ? '1px solid var(--primary)' : '1px solid var(--border)',
+            background: filter === f ? 'var(--primary)' : 'transparent',
+            color: filter === f ? '#000' : 'var(--text3)'
+          }}>{f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}</button>
+        ))}
       </div>
 
-      {/* Email List */}
-      <div className="sec">
+      {/* Paste email */}
+      {showCompose && <div style={{ padding: '8px 20px', borderBottom: '1px solid var(--border)' }}>
+        <textarea value={inputText} onChange={e => setInputText(e.target.value)} placeholder="Paste email text..." style={{ width: '100%', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, fontSize: 13, color: 'var(--text)', fontFamily: 'DM Sans', outline: 'none', resize: 'none', minHeight: 80, lineHeight: 1.5 }} />
+        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+          <button onClick={analyzeAndSave} disabled={analyzing} style={{ flex: 1, padding: 8, borderRadius: 8, background: analyzing ? 'var(--card2)' : 'var(--primary)', border: 'none', color: analyzing ? 'var(--text3)' : '#000', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'DM Sans' }}>{analyzing ? '⏳' : '🤖 Analyze'}</button>
+          <button onClick={() => setShowCompose(false)} style={{ padding: '8px 12px', borderRadius: 8, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text3)', fontSize: 12, cursor: 'pointer', fontFamily: 'DM Sans' }}>Cancel</button>
+        </div>
+      </div>}
+      {!showCompose && <button onClick={() => setShowCompose(true)} style={{ margin: '0 20px', padding: '8px', border: '1px dashed var(--border)', borderRadius: 8, background: 'transparent', color: 'var(--text3)', fontSize: 11, cursor: 'pointer', fontFamily: 'DM Sans', textAlign: 'center', marginBottom: 0, marginTop: 0 }}>📋 Paste email manually</button>}
+
+      {/* Email list */}
+      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
         {displayEmails.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">{tab === 'suggestions' ? '✅' : tab === 'linked' ? '🔗' : '📬'}</div>
-            <div className="empty-title">
-              {tab === 'suggestions' ? 'All sorted!' : tab === 'linked' ? 'No linked emails' : 'No emails yet'}
-            </div>
-            <div className="empty-sub">
-              {tab === 'suggestions' ? 'All emails have been linked to jobs' :
-                gmailConnected ? 'Tap Sync Now to pull new emails' : 'Connect Gmail or paste an email'}
-            </div>
+            <div className="empty-title">{tab === 'suggestions' ? 'All sorted!' : tab === 'linked' ? 'No linked emails' : 'No emails'}</div>
+            <div className="empty-sub">{tab === 'suggestions' ? 'All emails linked to jobs' : gmailConnected ? 'Emails sync automatically' : 'Connect Gmail or paste an email'}</div>
           </div>
         ) : displayEmails.map(email => {
           const cat = (email.categories || [])[0] || 'client'
           const catStyle = CAT_COLORS[cat] || CAT_COLORS.client
           const isLinked = email.metadata?.linked_job_id
           const linkedJob = isLinked ? jobs.find(j => j.id === isLinked) : null
-          const initial = (email.from_name || email.from_address || '?').charAt(0).toUpperCase()
-          const avColors = { insurance: '#8B5CF6', urgent: '#FF3B5C', supplier: '#2196F3', pm: '#FF6B35', client: '#00D4A0', internal: '#7A8799' }
+          const init = (email.from_name || email.from_address || '?').charAt(0).toUpperCase()
 
           return (
             <div key={email.id} className={`email-row ${email.status === 'unread' ? 'unread' : ''}`} onClick={() => openEmail(email)}>
-              <div className="email-av" style={{ background: avColors[cat] || '#00D4A0' }}>{initial}</div>
+              <div className="email-av" style={{ background: avColors[cat] || '#00D4A0' }}>{init}</div>
               <div className="email-body-wrap">
-                <div className="email-from">{sortMode === 'address'
-                  ? (email.metadata?.extracted_data?.address || email.subject)
-                  : (email.from_name || email.from_address || 'Unknown')
-                }</div>
+                <div className="email-from">{sortMode === 'address' ? (email.metadata?.extracted_data?.address || email.subject) : (email.from_name || email.from_address || 'Unknown')}</div>
                 <div className="email-subj">{email.subject}</div>
                 <div className="email-snippet">{email.summary || (email.body || '').slice(0, 80)}</div>
                 <div className="email-tags">
                   <span className="etag" style={{ background: catStyle.bg, color: catStyle.color }}>{cat.toUpperCase()}</span>
                   {email.priority === 'urgent' && <span className="etag" style={{ background: 'rgba(255,59,92,0.12)', color: '#FF3B5C' }}>URGENT</span>}
                   {isLinked && linkedJob && <span className="etag" style={{ background: 'rgba(33,150,243,0.12)', color: 'var(--blue)' }}>🔗 {linkedJob.job_number}</span>}
-                  {!isLinked && email.suggested_action === 'create_job' && <span className="etag" style={{ background: 'rgba(0,212,160,0.1)', color: 'var(--primary)' }}>→ NEW JOB</span>}
-                  {email.metadata?.attachments?.length > 0 && <span className="etag" style={{ background: 'rgba(255,184,0,0.1)', color: 'var(--yellow)' }}>📎 {email.metadata.attachments.length}</span>}
+                  {!isLinked && email.suggested_action === 'create_job' && <span className="etag" style={{ background: 'rgba(0,212,160,0.1)', color: 'var(--primary)' }}>→ JOB</span>}
+                  {email.metadata?.attachments?.length > 0 && <span className="etag" style={{ background: 'rgba(255,184,0,0.1)', color: 'var(--yellow)' }}>📎{email.metadata.attachments.length}</span>}
                 </div>
               </div>
-              <div className="email-right">
-                <div className="email-time">{formatEmailDate(email)}</div>
-              </div>
+              <div className="email-right"><div className="email-time">{formatEmailDate(email)}</div></div>
             </div>
           )
         })}
 
-        {/* Pagination */}
-        {totalEmails > PAGE_SIZE && (
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            gap: 12, padding: '16px 0'
-          }}>
-            <button onClick={() => loadEmails(emailPage - 1)} disabled={emailPage === 0} style={{
-              padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700,
-              background: emailPage === 0 ? 'var(--card)' : 'var(--card2)',
-              border: '1px solid var(--border)', color: emailPage === 0 ? 'var(--text3)' : 'var(--text2)',
-              cursor: emailPage === 0 ? 'default' : 'pointer', fontFamily: 'DM Sans'
-            }}>← Prev</button>
-            <span style={{ fontSize: 12, color: 'var(--text3)' }}>
-              {emailPage * PAGE_SIZE + 1}–{Math.min((emailPage + 1) * PAGE_SIZE, totalEmails)} of {totalEmails}
-            </span>
-            <button onClick={() => loadEmails(emailPage + 1)} disabled={(emailPage + 1) * PAGE_SIZE >= totalEmails} style={{
-              padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700,
-              background: (emailPage + 1) * PAGE_SIZE >= totalEmails ? 'var(--card)' : 'var(--card2)',
-              border: '1px solid var(--border)',
-              color: (emailPage + 1) * PAGE_SIZE >= totalEmails ? 'var(--text3)' : 'var(--text2)',
-              cursor: (emailPage + 1) * PAGE_SIZE >= totalEmails ? 'default' : 'pointer', fontFamily: 'DM Sans'
-            }}>Next →</button>
+        {totalEmails > PAGE_SIZE && !searchResults && (
+          <div className="inbox-pagination">
+            <button onClick={() => loadEmails(emailPage - 1)} disabled={emailPage === 0}>← Prev</button>
+            <span>{emailPage * PAGE_SIZE + 1}–{Math.min((emailPage + 1) * PAGE_SIZE, totalEmails)} of {totalEmails.toLocaleString()}</span>
+            <button onClick={() => loadEmails(emailPage + 1)} disabled={(emailPage + 1) * PAGE_SIZE >= totalEmails}>Next →</button>
           </div>
         )}
       </div>
 
-      {/* Email Detail Modal */}
+      {/* EMAIL DETAIL */}
       {showDetail && (
         <Modal title={null} onClose={() => setShowDetail(null)}>
-          {/* Sort mode banner */}
-          {showDetail._openedFrom === 'suggestions' && !showDetail.metadata?.linked_job_id && (
-            <div style={{
-              background: 'rgba(255,184,0,0.08)', border: '1px solid rgba(255,184,0,0.2)',
-              borderRadius: 12, padding: '12px 14px', marginBottom: 14,
-              display: 'flex', alignItems: 'center', gap: 10
-            }}>
-              <span style={{ fontSize: 20 }}>📂</span>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--yellow)' }}>Sort this email</div>
-                <div style={{ fontSize: 11, color: 'var(--text3)' }}>Link it to an existing job or create a new one</div>
-              </div>
-            </div>
-          )}
-
-          {/* Header */}
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-                {showDetail.from_name || showDetail.from_address}
-              </div>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {(showDetail.categories || []).map(c => {
-                  const s = CAT_COLORS[c] || CAT_COLORS.client
-                  return <span key={c} style={{ padding: '3px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700, background: s.bg, color: s.color }}>{c.toUpperCase()}</span>
-                })}
-                {showDetail.priority === 'urgent' && <span style={{ padding: '3px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700, background: 'rgba(255,59,92,0.12)', color: '#FF3B5C' }}>URGENT</span>}
-              </div>
-            </div>
-            <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.3 }}>{showDetail.subject}</div>
-          </div>
-
-          {/* Linked status */}
-          {showDetail.metadata?.linked_job_id && (() => {
-            const lj = jobs.find(j => j.id === showDetail.metadata.linked_job_id)
-            return lj ? (
-              <div style={{ background: 'rgba(33,150,243,0.06)', border: '1px solid rgba(33,150,243,0.15)', borderRadius: 14, padding: '12px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 18 }}>🔗</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--blue)', letterSpacing: 0.5 }}>LINKED TO</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>{lj.job_number} — {lj.name}</div>
-                </div>
-                <button onClick={() => unlinkEmail(showDetail.id)} style={{
-                  background: 'none', border: '1px solid rgba(255,59,92,0.3)', borderRadius: 8,
-                  padding: '6px 10px', fontSize: 11, fontWeight: 700, color: 'var(--red)',
-                  cursor: 'pointer', fontFamily: 'DM Sans'
-                }}>Unlink</button>
-              </div>
-            ) : null
-          })()}
-
-          {/* AI Summary */}
-          <div style={{ background: 'rgba(0,212,160,0.04)', border: '1px solid rgba(0,212,160,0.12)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <span style={{ fontSize: 14 }}>🤖</span>
-              <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--primary)', letterSpacing: 0.5 }}>AI SUMMARY</span>
-              {showDetail._analyzing && <div className="spinner" style={{ width: 12, height: 12, borderWidth: 2, marginLeft: 4 }} />}
-            </div>
-            <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.7 }}>
-              {showDetail.summary}
-              {showDetail._analyzing && <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 8 }}>Running deep analysis...</div>}
+          {/* Subject + From */}
+          <div style={{ paddingBottom: 14, borderBottom: '1px solid var(--border)', marginBottom: 14 }}>
+            <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.3, marginBottom: 8 }}>{showDetail.subject}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{showDetail.from_name || showDetail.from_address}</span>
+              <span style={{ fontSize: 11, color: 'var(--text3)' }}>{formatEmailDate(showDetail)}</span>
+              {(showDetail.categories || []).map(c => {
+                const s = CAT_COLORS[c] || CAT_COLORS.client
+                return <span key={c} className="etag" style={{ background: s.bg, color: s.color }}>{c.toUpperCase()}</span>
+              })}
             </div>
           </div>
 
-          {/* AI Job Suggestion */}
-          {!showDetail.metadata?.linked_job_id && !showDetail._suggestion && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', marginBottom: 14, background: 'var(--bg2)', borderRadius: 12 }}>
-              <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-              <span style={{ color: 'var(--text3)', fontSize: 13 }}>Finding matching job...</span>
-            </div>
-          )}
-
-          {showDetail._suggestion && showDetail._suggestion.job_id && !showDetail.metadata?.linked_job_id && (() => {
-            const suggestedJob = jobs.find(j => j.id === showDetail._suggestion.job_id)
-            return suggestedJob ? (
-              <div style={{ background: 'rgba(33,150,243,0.06)', border: '1px solid rgba(33,150,243,0.2)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                  <span style={{ fontSize: 14 }}>🤖</span>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--blue)', letterSpacing: 0.5 }}>AI SUGGESTS LINKING TO</span>
-                </div>
-                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>{suggestedJob.name}</div>
-                <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 4 }}>{suggestedJob.job_number} · {suggestedJob.clients?.name}</div>
-                <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12, lineHeight: 1.5 }}>
-                  Confidence: <strong>{showDetail._suggestion.confidence}</strong> — {showDetail._suggestion.reason}
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => linkEmailToJob(showDetail.id, suggestedJob.id)} className="btn btn-primary" style={{ flex: 1, padding: 12, fontSize: 13 }}>
-                    ✓ Confirm Link
-                  </button>
-                  <button onClick={() => { showDetail._suggestion = null; setShowDetail({ ...showDetail }) }} className="btn btn-secondary" style={{ padding: '12px 16px', fontSize: 13 }}>
-                    ✕ Wrong
-                  </button>
-                </div>
-              </div>
-            ) : null
-          })()}
-
-          {/* Manual link */}
-          {!showDetail.metadata?.linked_job_id && (
-            <div style={{ marginBottom: 14 }}>
-              <label className="form-label">LINK TO JOB MANUALLY</label>
-              <select className="form-input" onChange={e => { if (e.target.value) linkEmailToJob(showDetail.id, e.target.value) }}>
-                <option value="">Select job...</option>
-                {jobs.map(j => <option key={j.id} value={j.id}>{j.job_number} — {j.name} ({j.clients?.name})</option>)}
-              </select>
-            </div>
-          )}
-
-          {/* Attachments */}
-          {showDetail.metadata?.attachments?.length > 0 && (
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, marginBottom: 8 }}>
-                ATTACHMENTS ({showDetail.metadata.attachments.length})
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {showDetail.metadata.attachments.map((att, i) => (
-                  <div key={i} onClick={() => downloadAttachment(showDetail, att)} style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    background: 'var(--bg2)', border: '1px solid var(--border)',
-                    borderRadius: 12, padding: '10px 14px', cursor: 'pointer'
-                  }}>
-                    <span style={{ fontSize: 20 }}>
-                      {att.mimeType?.includes('image') ? '🖼️' :
-                       att.mimeType?.includes('pdf') ? '📄' :
-                       att.mimeType?.includes('spreadsheet') || att.mimeType?.includes('excel') ? '📊' :
-                       att.mimeType?.includes('word') || att.mimeType?.includes('document') ? '📝' : '📎'}
-                    </span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text3)' }}>{att.size ? (att.size / 1024).toFixed(0) + ' KB' : ''}</div>
-                    </div>
-                    <span style={{ fontSize: 11, color: 'var(--primary)', fontWeight: 700 }}>Download</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Front-inspired features bar */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-            {/* Assignment */}
+          {/* Toolbar */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', paddingBottom: 12, marginBottom: 12, borderBottom: '1px solid var(--border)' }}>
             {emailConfig.email_assignment && (
-              <select value={showDetail.assigned_to || ''} onChange={e => assignEmail(showDetail.id, e.target.value || null)}
-                style={{
-                  padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                  background: showDetail.assigned_to ? 'rgba(139,92,246,0.1)' : 'var(--bg2)',
-                  border: `1px solid ${showDetail.assigned_to ? 'rgba(139,92,246,0.2)' : 'var(--border)'}`,
-                  color: showDetail.assigned_to ? 'var(--purple)' : 'var(--text3)',
-                  outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer'
-                }}>
-                <option value="">👤 Unassigned</option>
+              <select value={showDetail.assigned_to || ''} onChange={e => assignEmail(showDetail.id, e.target.value || null)} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer' }}>
+                <option value="">👤 Assign</option>
                 {teamMembers.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
               </select>
             )}
-
-            {/* SLA */}
-            {(() => {
-              const sla = getSlaStatus(showDetail)
-              return sla ? (
-                <div style={{
-                  padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                  background: sla.status === 'breached' ? 'rgba(255,59,92,0.1)' : sla.status === 'warning' ? 'rgba(255,184,0,0.1)' : sla.status === 'resolved' ? 'rgba(0,212,160,0.1)' : 'var(--bg2)',
-                  color: sla.color || 'var(--text3)',
-                  border: '1px solid var(--border)'
-                }}>⏱ {sla.label}</div>
-              ) : null
-            })()}
+            {!showDetail.metadata?.linked_job_id && (
+              <select onChange={e => { if (e.target.value) linkEmailToJob(showDetail.id, e.target.value) }} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer' }}>
+                <option value="">🔗 Link to job</option>
+                {jobs.map(j => <option key={j.id} value={j.id}>{j.job_number} — {j.name}</option>)}
+              </select>
+            )}
+            {!showDetail.metadata?.linked_job_id && <button onClick={() => startCreateJobFromEmail(showDetail)} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', cursor: 'pointer', fontFamily: 'DM Sans' }}>+ New Job</button>}
           </div>
 
-          {/* Internal Comments */}
+          {/* Linked job */}
+          {showDetail.metadata?.linked_job_id && (() => {
+            const lj = jobs.find(j => j.id === showDetail.metadata.linked_job_id)
+            return lj ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(33,150,243,0.04)', border: '1px solid rgba(33,150,243,0.12)', borderRadius: 10, marginBottom: 14 }}>
+                <span>🔗</span>
+                <div style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{lj.job_number} — {lj.name}</div>
+                <button onClick={() => unlinkEmail(showDetail.id)} style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'DM Sans' }}>Unlink</button>
+              </div>
+            ) : null
+          })()}
+
+          {/* THE EMAIL — shown first, this is the main content */}
+          <div className="email-full-body">{showDetail.body || showDetail.raw_text || 'No content'}</div>
+
+          {/* Attachments */}
+          {showDetail.metadata?.attachments?.length > 0 && (
+            <div className="attach-chips">
+              {showDetail.metadata.attachments.map((att, i) => (
+                <div key={i} className="attach-chip" onClick={() => downloadAttachment(showDetail, att)}>
+                  <span>{att.mimeType?.includes('image') ? '🖼️' : att.mimeType?.includes('pdf') ? '📄' : '📎'}</span>
+                  <span>{att.filename}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* AI — ON DEMAND */}
+          {!showDetail._aiLoaded && (
+            <button onClick={async () => {
+              setShowDetail(prev => ({ ...prev, _analyzing: true }))
+              const body = (showDetail.body || showDetail.raw_text || '').slice(0, 2000)
+              const fullText = `From: ${showDetail.from_name || showDetail.from_address}\nSubject: ${showDetail.subject}\n\n${body}`
+              const result = await analyzeEmailFull(fullText)
+              if (result) {
+                await supabase.from('inbox_emails').update({ summary: result.summary || '', draft_reply: result.draft_reply || '', metadata: { ...showDetail.metadata, needs_full_analysis: false, extracted_data: result.extracted_data || {} } }).eq('id', showDetail.id)
+                setShowDetail(prev => prev?.id === showDetail.id ? { ...prev, summary: result.summary, draft_reply: result.draft_reply, _aiLoaded: true, _analyzing: false } : prev)
+              } else {
+                setShowDetail(prev => ({ ...prev, _analyzing: false }))
+              }
+            }} disabled={showDetail._analyzing} className="ai-analyze-btn">
+              {showDetail._analyzing ? <><div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Analyzing...</> : '🤖 AI Summary & Draft Reply'}
+            </button>
+          )}
+
+          {showDetail._aiLoaded && showDetail.summary && (
+            <div className="ai-result-box" style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--primary)', letterSpacing: 0.5, marginBottom: 6 }}>🤖 AI SUMMARY</div>
+              <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.7 }}>{showDetail.summary}</div>
+            </div>
+          )}
+
+          {/* Comments */}
           {emailConfig.email_comments && (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, marginBottom: 6 }}>
-                INTERNAL COMMENTS ({(showDetail.comments || []).length})
-              </div>
-              <div style={{ background: 'var(--bg2)', borderRadius: 12, overflow: 'hidden', marginBottom: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, marginBottom: 6 }}>COMMENTS ({(showDetail.comments || []).length})</div>
+              <div className="comments-box">
                 {(showDetail.comments || []).length === 0 ? (
-                  <div style={{ padding: 12, textAlign: 'center', fontSize: 11, color: 'var(--text3)' }}>No comments yet — only your team sees these</div>
+                  <div style={{ padding: 12, textAlign: 'center', fontSize: 11, color: 'var(--text3)' }}>Team-only comments</div>
                 ) : (showDetail.comments || []).map((c, i) => (
-                  <div key={i} style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--purple)' }}>{c.user}</span>
-                      <span style={{ fontSize: 9, color: 'var(--text3)' }}>
-                        {new Date(c.time).toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>{c.text}</div>
+                  <div key={i} className="comment-row">
+                    <span className="comment-name">{c.user}</span>
+                    <span className="comment-date">{new Date(c.time).toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <div className="comment-body">{c.text}</div>
                   </div>
                 ))}
-              </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <input value={newComment} onChange={e => setNewComment(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') addComment(showDetail.id) }}
-                  placeholder="Add internal comment..."
-                  style={{
-                    flex: 1, padding: '8px 12px', background: 'var(--card)', border: '1px solid var(--border)',
-                    borderRadius: 8, fontSize: 12, color: 'var(--text)', outline: 'none', fontFamily: 'DM Sans'
-                  }} />
-                <button onClick={() => addComment(showDetail.id)} style={{
-                  padding: '8px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
-                  background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)',
-                  color: 'var(--purple)', cursor: 'pointer', fontFamily: 'DM Sans'
-                }}>💬</button>
+                <div className="comment-add">
+                  <input className="comment-input" value={newComment} onChange={e => setNewComment(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addComment(showDetail.id) }} placeholder="Add comment..." />
+                  <button className="comment-send" onClick={() => addComment(showDetail.id)}>💬</button>
+                </div>
               </div>
             </div>
           )}
 
-          {/* Email body — expandable */}
-          <details style={{ marginBottom: 14 }}>
-            <summary style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, cursor: 'pointer', padding: '8px 0', userSelect: 'none' }}>
-              ORIGINAL EMAIL ▾
-            </summary>
-            <div style={{ background: 'var(--bg2)', borderRadius: 12, padding: 16, fontSize: 14, color: 'var(--text2)', lineHeight: 1.8, whiteSpace: 'pre-wrap', marginTop: 8, maxHeight: 300, overflow: 'auto' }}>
-              {showDetail.body || showDetail.raw_text}
-            </div>
-          </details>
-
-          {/* Reply Section */}
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <label className="form-label" style={{ margin: 0 }}>REPLY</label>
+          {/* Reply */}
+          <div className="reply-box">
+            <div className="reply-header">
+              <span className="reply-label">Reply</span>
               <div style={{ display: 'flex', gap: 6 }}>
-                {/* Template picker */}
                 {emailConfig.email_templates && replyTemplates.length > 0 && (
-                  <select onChange={e => {
-                    if (!e.target.value) return
-                    const tpl = replyTemplates.find(t => t.id === e.target.value)
-                    if (tpl) {
-                      const el = document.getElementById('draft-reply-text')
-                      if (el) el.value = applyTemplate(tpl, showDetail)
-                    }
-                    e.target.value = ''
-                  }} style={{
-                    padding: '5px 8px', borderRadius: 8, fontSize: 10, fontWeight: 600,
-                    background: 'var(--bg2)', border: '1px solid var(--border)', color: 'var(--text2)',
-                    outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer'
-                  }}>
+                  <select onChange={e => { if (!e.target.value) return; const tpl = replyTemplates.find(t => t.id === e.target.value); if (tpl) { const el = document.getElementById('reply-area'); if (el) el.value = applyTemplate(tpl, showDetail) } e.target.value = '' }} style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer' }}>
                     <option value="">📝 Templates</option>
                     {replyTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>
                 )}
-                <button className="btn btn-secondary" style={{ padding: '5px 12px', fontSize: 11 }}
-                  onClick={() => {
-                    const el = document.getElementById('draft-reply-text')
-                    navigator.clipboard.writeText(el?.value || showDetail.draft_reply || '').then(() => showToast('Copied to clipboard'))
-                  }}>📋 Copy</button>
+                <button onClick={() => { const el = document.getElementById('reply-area'); navigator.clipboard.writeText(el?.value || showDetail.draft_reply || '').then(() => showToast('Copied')) }} style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'DM Sans' }}>📋 Copy</button>
               </div>
             </div>
-            <textarea id="draft-reply-text" className="form-input" style={{
-              fontSize: 14, lineHeight: 1.7, minHeight: 160, color: 'var(--text)',
-              background: 'var(--bg2)', padding: 16
-            }} defaultValue={showDetail.draft_reply || ''} placeholder="Write a reply or select a template..." />
+            <textarea id="reply-area" className="reply-area" defaultValue={showDetail.draft_reply || ''} placeholder="Write a reply..." />
           </div>
 
-          {/* Action buttons */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-            {!showDetail.metadata?.linked_job_id && (
-              <button className="btn btn-primary btn-full" style={{ padding: 14, fontSize: 14 }} onClick={() => startCreateJobFromEmail(showDetail)}>
-                + Create New Job from Email
-              </button>
-            )}
-            <button className="btn btn-danger btn-full" style={{ padding: 12 }} onClick={() => deleteEmail(showDetail.id)}>Delete Email</button>
+          {/* Actions */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button className="btn btn-danger btn-full" style={{ padding: 12 }} onClick={() => deleteEmail(showDetail.id)}>Delete</button>
             <button className="btn btn-secondary btn-full" style={{ padding: 12 }} onClick={() => setShowDetail(null)}>Close</button>
           </div>
         </Modal>
       )}
 
-      {/* Create Job from Email Modal — Full form same as Jobs tab */}
+      {/* Create Job Modal */}
       {showCreateJobModal && createJobEmail && (
         <Modal title="Create Job from Email" onClose={() => setShowCreateJobModal(false)}>
-          {/* Email reference */}
-          <div style={{ background: 'rgba(0,212,160,0.04)', border: '1px solid rgba(0,212,160,0.12)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+          <div style={{ background: 'var(--bg2)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
             <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 2 }}>From: {createJobEmail.from_name || createJobEmail.from_address}</div>
             <div style={{ fontSize: 13, fontWeight: 700 }}>{createJobEmail.subject}</div>
           </div>
-
-          {/* Client */}
-          <div className="form-field">
-            <label className="form-label">Client *</label>
+          <div className="form-field"><label className="form-label">Client *</label>
             <select className="form-input" value={createJobClientId} onChange={e => { setCreateJobClientId(e.target.value); if (e.target.value) setCreateJobNewClient('') }}>
-              <option value="">-- Select existing or create new --</option>
+              <option value="">-- Select or create new --</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-          {!createJobClientId && (
-            <div className="form-field">
-              <label className="form-label">Or New Client Name</label>
-              <input className="form-input" placeholder="e.g. Maple Leaf Properties"
-                value={createJobNewClient} onChange={e => setCreateJobNewClient(e.target.value)} />
-            </div>
-          )}
-
-          {/* Job Name */}
-          <div className="form-field">
-            <label className="form-label">Job Name *</label>
-            <input className="form-input" value={createJobForm.name}
-              onChange={e => setCreateJobForm(f => ({ ...f, name: e.target.value }))} />
-          </div>
-
-          {/* Stage + Priority */}
+          {!createJobClientId && <div className="form-field"><label className="form-label">New Client Name</label><input className="form-input" placeholder="Client name" value={createJobNewClient} onChange={e => setCreateJobNewClient(e.target.value)} /></div>}
+          <div className="form-field"><label className="form-label">Job Name *</label><input className="form-input" value={createJobForm.name} onChange={e => setCreateJobForm(f => ({ ...f, name: e.target.value }))} /></div>
           <div className="form-row">
-            <div className="form-field">
-              <label className="form-label">Stage</label>
-              <select className="form-input" value={createJobForm.stage || 'lead'}
-                onChange={e => setCreateJobForm(f => ({ ...f, stage: e.target.value }))}>
-                <option value="lead">Lead</option>
-                <option value="quoted">Quoted</option>
-                <option value="active">Active</option>
-                <option value="completed">Completed</option>
-                <option value="invoiced">Invoiced</option>
-                <option value="closed">Closed</option>
-              </select>
-            </div>
-            <div className="form-field">
-              <label className="form-label">Priority</label>
-              <select className="form-input" value={createJobForm.priority}
-                onChange={e => setCreateJobForm(f => ({ ...f, priority: e.target.value }))}>
-                <option value="emergency">Emergency</option>
-                <option value="urgent">Urgent</option>
-                <option value="normal">Normal</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Job Type + Value */}
-          <div className="form-row">
-            <div className="form-field">
-              <label className="form-label">Job Type</label>
-              <select className="form-input" value={createJobForm.job_type || ''}
-                onChange={e => setCreateJobForm(f => ({ ...f, job_type: e.target.value }))}>
-                <option value="">Select...</option>
-                <option value="water_damage">Water Damage</option>
-                <option value="fire_damage">Fire Damage</option>
-                <option value="mold_remediation">Mold Remediation</option>
-                <option value="storm_damage">Storm Damage</option>
-                <option value="hvac">HVAC</option>
-                <option value="plumbing">Plumbing</option>
-                <option value="electrical">Electrical</option>
-                <option value="cleaning">Cleaning</option>
-                <option value="maintenance">Maintenance</option>
-                <option value="inspection">Inspection</option>
-                <option value="renovation">Renovation</option>
-                <option value="general">General</option>
-              </select>
-            </div>
-            <div className="form-field">
-              <label className="form-label">Estimated Value ($)</label>
-              <input className="form-input" type="number" placeholder="0.00"
-                value={createJobForm.estimated_value || ''}
-                onChange={e => setCreateJobForm(f => ({ ...f, estimated_value: e.target.value }))} />
-            </div>
-          </div>
-
-          {/* Site Address */}
-          <div className="form-field">
-            <label className="form-label">Site Address</label>
-            <input className="form-input" value={createJobForm.site_address}
-              onChange={e => setCreateJobForm(f => ({ ...f, site_address: e.target.value }))} />
+            <div className="form-field"><label className="form-label">Stage</label><select className="form-input" value={createJobForm.stage || 'lead'} onChange={e => setCreateJobForm(f => ({ ...f, stage: e.target.value }))}><option value="lead">Lead</option><option value="quoted">Quoted</option><option value="active">Active</option><option value="completed">Completed</option><option value="invoiced">Invoiced</option><option value="closed">Closed</option></select></div>
+            <div className="form-field"><label className="form-label">Priority</label><select className="form-input" value={createJobForm.priority} onChange={e => setCreateJobForm(f => ({ ...f, priority: e.target.value }))}><option value="emergency">Emergency</option><option value="urgent">Urgent</option><option value="normal">Normal</option><option value="low">Low</option></select></div>
           </div>
           <div className="form-row">
-            <div className="form-field">
-              <label className="form-label">City</label>
-              <input className="form-input" value={createJobForm.site_city || ''}
-                onChange={e => setCreateJobForm(f => ({ ...f, site_city: e.target.value }))} />
-            </div>
-            <div className="form-field">
-              <label className="form-label">Province/State</label>
-              <input className="form-input" value={createJobForm.site_province_state || ''}
-                onChange={e => setCreateJobForm(f => ({ ...f, site_province_state: e.target.value }))} />
-            </div>
+            <div className="form-field"><label className="form-label">Job Type</label><select className="form-input" value={createJobForm.job_type || ''} onChange={e => setCreateJobForm(f => ({ ...f, job_type: e.target.value }))}><option value="">Select...</option><option value="water_damage">Water Damage</option><option value="fire_damage">Fire Damage</option><option value="mold_remediation">Mold</option><option value="hvac">HVAC</option><option value="plumbing">Plumbing</option><option value="electrical">Electrical</option><option value="cleaning">Cleaning</option><option value="maintenance">Maintenance</option><option value="renovation">Renovation</option><option value="general">General</option></select></div>
+            <div className="form-field"><label className="form-label">Value ($)</label><input className="form-input" type="number" placeholder="0" value={createJobForm.estimated_value || ''} onChange={e => setCreateJobForm(f => ({ ...f, estimated_value: e.target.value }))} /></div>
           </div>
-
-          {/* Unit Numbers */}
-          <div className="form-field">
-            <label className="form-label">Unit Numbers</label>
-            <input className="form-input" placeholder="e.g. 820, 416, 1003"
-              value={createJobForm.unit_numbers || ''}
-              onChange={e => setCreateJobForm(f => ({ ...f, unit_numbers: e.target.value }))} />
-          </div>
-
-          {/* Schedule */}
+          <div className="form-field"><label className="form-label">Address</label><input className="form-input" value={createJobForm.site_address} onChange={e => setCreateJobForm(f => ({ ...f, site_address: e.target.value }))} /></div>
           <div className="form-row">
-            <div className="form-field">
-              <label className="form-label">Scheduled Start</label>
-              <input className="form-input" type="datetime-local" value={createJobForm.scheduled_start || ''}
-                onChange={e => setCreateJobForm(f => ({ ...f, scheduled_start: e.target.value }))} />
-            </div>
-            <div className="form-field">
-              <label className="form-label">Scheduled End</label>
-              <input className="form-input" type="datetime-local" value={createJobForm.scheduled_end || ''}
-                onChange={e => setCreateJobForm(f => ({ ...f, scheduled_end: e.target.value }))} />
-            </div>
+            <div className="form-field"><label className="form-label">City</label><input className="form-input" value={createJobForm.site_city || ''} onChange={e => setCreateJobForm(f => ({ ...f, site_city: e.target.value }))} /></div>
+            <div className="form-field"><label className="form-label">Province</label><input className="form-input" value={createJobForm.site_province_state || ''} onChange={e => setCreateJobForm(f => ({ ...f, site_province_state: e.target.value }))} /></div>
           </div>
-
-          {/* Insurance */}
+          <div className="form-field"><label className="form-label">Units</label><input className="form-input" placeholder="820, 416, 1003" value={createJobForm.unit_numbers || ''} onChange={e => setCreateJobForm(f => ({ ...f, unit_numbers: e.target.value }))} /></div>
           <div className="form-row">
-            <div className="form-field">
-              <label className="form-label">Insurance Company</label>
-              <input className="form-input" placeholder="Optional"
-                value={createJobForm.insurance_company || ''}
-                onChange={e => setCreateJobForm(f => ({ ...f, insurance_company: e.target.value }))} />
-            </div>
-            <div className="form-field">
-              <label className="form-label">Claim #</label>
-              <input className="form-input" placeholder="Optional"
-                value={createJobForm.insurance_claim_number}
-                onChange={e => setCreateJobForm(f => ({ ...f, insurance_claim_number: e.target.value }))} />
-            </div>
+            <div className="form-field"><label className="form-label">Start</label><input className="form-input" type="datetime-local" value={createJobForm.scheduled_start || ''} onChange={e => setCreateJobForm(f => ({ ...f, scheduled_start: e.target.value }))} /></div>
+            <div className="form-field"><label className="form-label">End</label><input className="form-input" type="datetime-local" value={createJobForm.scheduled_end || ''} onChange={e => setCreateJobForm(f => ({ ...f, scheduled_end: e.target.value }))} /></div>
           </div>
-
-          {/* Description */}
-          <div className="form-field">
-            <label className="form-label">Description / Scope</label>
-            <textarea className="form-input" style={{ minHeight: 140, lineHeight: 1.7 }}
-              value={createJobForm.description}
-              onChange={e => setCreateJobForm(f => ({ ...f, description: e.target.value }))} />
+          <div className="form-row">
+            <div className="form-field"><label className="form-label">Insurance Co.</label><input className="form-input" value={createJobForm.insurance_company || ''} onChange={e => setCreateJobForm(f => ({ ...f, insurance_company: e.target.value }))} /></div>
+            <div className="form-field"><label className="form-label">Claim #</label><input className="form-input" value={createJobForm.insurance_claim_number} onChange={e => setCreateJobForm(f => ({ ...f, insurance_claim_number: e.target.value }))} /></div>
           </div>
-
-          {/* Notes */}
-          <div className="form-field">
-            <label className="form-label">Notes</label>
-            <textarea className="form-input" placeholder="Internal notes..."
-              value={createJobForm.notes || ''}
-              onChange={e => setCreateJobForm(f => ({ ...f, notes: e.target.value }))} />
-          </div>
-
-          <button className="btn btn-primary btn-full" style={{ marginTop: 8, padding: 14, fontSize: 14 }} onClick={confirmCreateJobFromEmail}>
-            Create Job & Link Email
-          </button>
-          <button className="btn btn-secondary btn-full" style={{ marginTop: 8 }} onClick={() => setShowCreateJobModal(false)}>
-            Cancel
-          </button>
+          <div className="form-field"><label className="form-label">Description</label><textarea className="form-input" style={{ minHeight: 120 }} value={createJobForm.description} onChange={e => setCreateJobForm(f => ({ ...f, description: e.target.value }))} /></div>
+          <div className="form-field"><label className="form-label">Notes</label><textarea className="form-input" value={createJobForm.notes || ''} onChange={e => setCreateJobForm(f => ({ ...f, notes: e.target.value }))} /></div>
+          <button className="btn btn-primary btn-full" style={{ marginTop: 8, padding: 14 }} onClick={confirmCreateJobFromEmail}>Create Job & Link Email</button>
+          <button className="btn btn-secondary btn-full" style={{ marginTop: 8 }} onClick={() => setShowCreateJobModal(false)}>Cancel</button>
         </Modal>
       )}
     </div>
