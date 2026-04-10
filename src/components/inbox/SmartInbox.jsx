@@ -969,46 +969,29 @@ Only return valid JSON.`, 256, 'haiku'
           const catStyle = CAT_COLORS[cat] || CAT_COLORS.client
           const isLinked = email.metadata?.linked_job_id
           const linkedJob = isLinked ? jobs.find(j => j.id === isLinked) : null
+          const initial = (email.from_name || email.from_address || '?').charAt(0).toUpperCase()
+          const avColors = { insurance: '#8B5CF6', urgent: '#FF3B5C', supplier: '#2196F3', pm: '#FF6B35', client: '#00D4A0', internal: '#7A8799' }
 
           return (
-            <div key={email.id} className="card" onClick={() => openEmail(email)} style={{
-              borderLeft: email.status === 'unread' ? '3px solid var(--primary)' :
-                isLinked ? '3px solid var(--blue)' : '3px solid transparent',
-              position: 'relative', zIndex: 1, cursor: 'pointer'
-            }}>
-              {/* Primary line — address or name based on sort mode */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <div style={{ fontSize: 13, fontWeight: email.status === 'unread' ? 800 : 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {sortMode === 'address'
-                    ? (email.metadata?.extracted_data?.address || email.metadata?.extracted_data?.unit_numbers
-                        ? `📍 ${email.metadata?.extracted_data?.address || ''}${email.metadata?.extracted_data?.unit_numbers ? ' · Unit ' + email.metadata.extracted_data.unit_numbers : ''}`
-                        : email.subject)
-                    : (email.from_name || email.from_address || 'Unknown')
-                  }
+            <div key={email.id} className={`email-row ${email.status === 'unread' ? 'unread' : ''}`} onClick={() => openEmail(email)}>
+              <div className="email-av" style={{ background: avColors[cat] || '#00D4A0' }}>{initial}</div>
+              <div className="email-body-wrap">
+                <div className="email-from">{sortMode === 'address'
+                  ? (email.metadata?.extracted_data?.address || email.subject)
+                  : (email.from_name || email.from_address || 'Unknown')
+                }</div>
+                <div className="email-subj">{email.subject}</div>
+                <div className="email-snippet">{email.summary || (email.body || '').slice(0, 80)}</div>
+                <div className="email-tags">
+                  <span className="etag" style={{ background: catStyle.bg, color: catStyle.color }}>{cat.toUpperCase()}</span>
+                  {email.priority === 'urgent' && <span className="etag" style={{ background: 'rgba(255,59,92,0.12)', color: '#FF3B5C' }}>URGENT</span>}
+                  {isLinked && linkedJob && <span className="etag" style={{ background: 'rgba(33,150,243,0.12)', color: 'var(--blue)' }}>🔗 {linkedJob.job_number}</span>}
+                  {!isLinked && email.suggested_action === 'create_job' && <span className="etag" style={{ background: 'rgba(0,212,160,0.1)', color: 'var(--primary)' }}>→ NEW JOB</span>}
+                  {email.metadata?.attachments?.length > 0 && <span className="etag" style={{ background: 'rgba(255,184,0,0.1)', color: 'var(--yellow)' }}>📎 {email.metadata.attachments.length}</span>}
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--text3)', flexShrink: 0, marginLeft: 8 }}>{formatEmailDate(email)}</div>
               </div>
-              {/* Secondary line — the other view */}
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 3 }}>
-                {sortMode === 'address'
-                  ? (email.from_name || email.from_address || '')
-                  : (email.metadata?.extracted_data?.address ? '📍 ' + email.metadata.extracted_data.address : '')
-                }
-              </div>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email.subject}</div>
-              <div style={{ fontSize: 11, color: 'var(--text2)', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{email.summary}</div>
-              <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: catStyle.bg, color: catStyle.color }}>{cat.toUpperCase()}</span>
-                {email.priority === 'urgent' && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(255,59,92,0.12)', color: '#FF3B5C' }}>URGENT</span>}
-                {isLinked && linkedJob && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(33,150,243,0.12)', color: 'var(--blue)' }}>🔗 {linkedJob.job_number}</span>}
-                {!isLinked && email.suggested_action === 'create_job' && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(0,212,160,0.1)', color: 'var(--primary)', border: '1px solid rgba(0,212,160,0.2)' }}>→ NEW JOB</span>}
-                {email.metadata?.attachments?.length > 0 && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(255,184,0,0.1)', color: 'var(--yellow)' }}>📎 {email.metadata.attachments.length}</span>}
-                {emailConfig.email_assignment && email.assigned_to && (() => {
-                  const assignee = teamMembers.find(m => m.id === email.assigned_to)
-                  return assignee ? <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(139,92,246,0.1)', color: 'var(--purple)' }}>👤 {assignee.full_name?.split(' ')[0]}</span> : null
-                })()}
-                {emailConfig.email_comments && (email.comments || []).length > 0 && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(33,150,243,0.1)', color: 'var(--blue)' }}>💬 {email.comments.length}</span>}
-                {(() => { const sla = getSlaStatus(email); return sla && sla.status !== 'ok' && sla.status !== 'resolved' ? <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: sla.status === 'breached' ? 'rgba(255,59,92,0.1)' : 'rgba(255,184,0,0.1)', color: sla.color }}>⏱ {sla.label}</span> : null })()}
+              <div className="email-right">
+                <div className="email-time">{formatEmailDate(email)}</div>
               </div>
             </div>
           )
