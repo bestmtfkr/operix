@@ -4,7 +4,6 @@ import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../shared/Toast'
 import Modal from '../shared/Modal'
 import { categorizeEmail, analyzeEmailFull, askAIJSON } from '../../lib/ai'
-import './Inbox.css'
 
 const CAT_COLORS = {
   insurance: { bg: 'rgba(139,92,246,0.12)', color: '#8B5CF6' },
@@ -951,8 +950,8 @@ Only return valid JSON.`, 256, 'haiku'
         </div>
       </div>
 
-      {/* Email List — Front-inspired */}
-      <div className="inbox-list">
+      {/* Email List */}
+      <div className="sec">
         {displayEmails.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">{tab === 'suggestions' ? '✅' : tab === 'linked' ? '🔗' : '📬'}</div>
@@ -961,7 +960,7 @@ Only return valid JSON.`, 256, 'haiku'
             </div>
             <div className="empty-sub">
               {tab === 'suggestions' ? 'All emails have been linked to jobs' :
-                gmailConnected ? 'Emails sync automatically' : 'Connect Gmail or paste an email'}
+                gmailConnected ? 'Tap Sync Now to pull new emails' : 'Connect Gmail or paste an email'}
             </div>
           </div>
         ) : displayEmails.map(email => {
@@ -969,47 +968,46 @@ Only return valid JSON.`, 256, 'haiku'
           const catStyle = CAT_COLORS[cat] || CAT_COLORS.client
           const isLinked = email.metadata?.linked_job_id
           const linkedJob = isLinked ? jobs.find(j => j.id === isLinked) : null
-          const initials = (email.from_name || email.from_address || '?').charAt(0).toUpperCase()
-          const sla = getSlaStatus(email)
-          const assignee = emailConfig.email_assignment && email.assigned_to ? teamMembers.find(m => m.id === email.assigned_to) : null
 
           return (
-            <div key={email.id} className={`email-item ${email.status === 'unread' ? 'unread' : ''}`} onClick={() => openEmail(email)}>
-              {/* Avatar */}
-              <div className="email-avatar" style={{
-                background: cat === 'insurance' ? 'rgba(139,92,246,0.15)' :
-                  cat === 'urgent' ? 'rgba(255,59,92,0.15)' :
-                  cat === 'supplier' ? 'rgba(33,150,243,0.15)' : 'rgba(0,212,160,0.1)',
-                color: catStyle.color
-              }}>{initials}</div>
-
-              {/* Content */}
-              <div className="email-content">
-                <div className={`email-sender ${email.status === 'unread' ? 'unread' : 'read'}`}>
+            <div key={email.id} className="card" onClick={() => openEmail(email)} style={{
+              borderLeft: email.status === 'unread' ? '3px solid var(--primary)' :
+                isLinked ? '3px solid var(--blue)' : '3px solid transparent',
+              position: 'relative', zIndex: 1, cursor: 'pointer'
+            }}>
+              {/* Primary line — address or name based on sort mode */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <div style={{ fontSize: 13, fontWeight: email.status === 'unread' ? 800 : 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {sortMode === 'address'
-                    ? (email.metadata?.extracted_data?.address || email.subject)
+                    ? (email.metadata?.extracted_data?.address || email.metadata?.extracted_data?.unit_numbers
+                        ? `📍 ${email.metadata?.extracted_data?.address || ''}${email.metadata?.extracted_data?.unit_numbers ? ' · Unit ' + email.metadata.extracted_data.unit_numbers : ''}`
+                        : email.subject)
                     : (email.from_name || email.from_address || 'Unknown')
                   }
-                  {assignee && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(139,92,246,0.1)', color: 'var(--purple)', fontWeight: 700 }}>{assignee.full_name?.split(' ')[0]}</span>}
                 </div>
-                <div className="email-subject">{email.subject}</div>
-                <div className="email-preview">{email.summary || email.body?.slice(0, 100)}</div>
-                <div className="email-badges">
-                  <span className="email-badge" style={{ background: catStyle.bg, color: catStyle.color }}>{cat.toUpperCase()}</span>
-                  {email.priority === 'urgent' && <span className="email-badge" style={{ background: 'rgba(255,59,92,0.12)', color: '#FF3B5C' }}>URGENT</span>}
-                  {isLinked && linkedJob && <span className="email-badge" style={{ background: 'rgba(33,150,243,0.12)', color: 'var(--blue)' }}>🔗 {linkedJob.job_number}</span>}
-                  {!isLinked && email.suggested_action === 'create_job' && <span className="email-badge" style={{ background: 'rgba(0,212,160,0.1)', color: 'var(--primary)' }}>→ NEW JOB</span>}
-                  {email.metadata?.attachments?.length > 0 && <span className="email-badge" style={{ background: 'rgba(255,184,0,0.1)', color: 'var(--yellow)' }}>📎 {email.metadata.attachments.length}</span>}
-                  {(email.comments || []).length > 0 && <span className="email-badge" style={{ background: 'rgba(33,150,243,0.1)', color: 'var(--blue)' }}>💬 {email.comments.length}</span>}
-                </div>
+                <div style={{ fontSize: 10, color: 'var(--text3)', flexShrink: 0, marginLeft: 8 }}>{formatEmailDate(email)}</div>
               </div>
-
-              {/* Meta — right side */}
-              <div className="email-meta">
-                <div className="email-date">{formatEmailDate(email)}</div>
-                {sla && sla.status !== 'ok' && sla.status !== 'resolved' && (
-                  <span className="email-badge" style={{ background: sla.status === 'breached' ? 'rgba(255,59,92,0.1)' : 'rgba(255,184,0,0.1)', color: sla.color }}>⏱</span>
-                )}
+              {/* Secondary line — the other view */}
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 3 }}>
+                {sortMode === 'address'
+                  ? (email.from_name || email.from_address || '')
+                  : (email.metadata?.extracted_data?.address ? '📍 ' + email.metadata.extracted_data.address : '')
+                }
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email.subject}</div>
+              <div style={{ fontSize: 11, color: 'var(--text2)', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{email.summary}</div>
+              <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: catStyle.bg, color: catStyle.color }}>{cat.toUpperCase()}</span>
+                {email.priority === 'urgent' && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(255,59,92,0.12)', color: '#FF3B5C' }}>URGENT</span>}
+                {isLinked && linkedJob && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(33,150,243,0.12)', color: 'var(--blue)' }}>🔗 {linkedJob.job_number}</span>}
+                {!isLinked && email.suggested_action === 'create_job' && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(0,212,160,0.1)', color: 'var(--primary)', border: '1px solid rgba(0,212,160,0.2)' }}>→ NEW JOB</span>}
+                {email.metadata?.attachments?.length > 0 && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(255,184,0,0.1)', color: 'var(--yellow)' }}>📎 {email.metadata.attachments.length}</span>}
+                {emailConfig.email_assignment && email.assigned_to && (() => {
+                  const assignee = teamMembers.find(m => m.id === email.assigned_to)
+                  return assignee ? <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(139,92,246,0.1)', color: 'var(--purple)' }}>👤 {assignee.full_name?.split(' ')[0]}</span> : null
+                })()}
+                {emailConfig.email_comments && (email.comments || []).length > 0 && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(33,150,243,0.1)', color: 'var(--blue)' }}>💬 {email.comments.length}</span>}
+                {(() => { const sla = getSlaStatus(email); return sla && sla.status !== 'ok' && sla.status !== 'resolved' ? <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: sla.status === 'breached' ? 'rgba(255,59,92,0.1)' : 'rgba(255,184,0,0.1)', color: sla.color }}>⏱ {sla.label}</span> : null })()}
               </div>
             </div>
           )
@@ -1017,10 +1015,26 @@ Only return valid JSON.`, 256, 'haiku'
 
         {/* Pagination */}
         {totalEmails > PAGE_SIZE && (
-          <div className="inbox-pagination">
-            <button onClick={() => loadEmails(emailPage - 1)} disabled={emailPage === 0}>← Prev</button>
-            <span>{emailPage * PAGE_SIZE + 1}–{Math.min((emailPage + 1) * PAGE_SIZE, totalEmails)} of {totalEmails.toLocaleString()}</span>
-            <button onClick={() => loadEmails(emailPage + 1)} disabled={(emailPage + 1) * PAGE_SIZE >= totalEmails}>Next →</button>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: 12, padding: '16px 0'
+          }}>
+            <button onClick={() => loadEmails(emailPage - 1)} disabled={emailPage === 0} style={{
+              padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700,
+              background: emailPage === 0 ? 'var(--card)' : 'var(--card2)',
+              border: '1px solid var(--border)', color: emailPage === 0 ? 'var(--text3)' : 'var(--text2)',
+              cursor: emailPage === 0 ? 'default' : 'pointer', fontFamily: 'DM Sans'
+            }}>← Prev</button>
+            <span style={{ fontSize: 12, color: 'var(--text3)' }}>
+              {emailPage * PAGE_SIZE + 1}–{Math.min((emailPage + 1) * PAGE_SIZE, totalEmails)} of {totalEmails}
+            </span>
+            <button onClick={() => loadEmails(emailPage + 1)} disabled={(emailPage + 1) * PAGE_SIZE >= totalEmails} style={{
+              padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700,
+              background: (emailPage + 1) * PAGE_SIZE >= totalEmails ? 'var(--card)' : 'var(--card2)',
+              border: '1px solid var(--border)',
+              color: (emailPage + 1) * PAGE_SIZE >= totalEmails ? 'var(--text3)' : 'var(--text2)',
+              cursor: (emailPage + 1) * PAGE_SIZE >= totalEmails ? 'default' : 'pointer', fontFamily: 'DM Sans'
+            }}>Next →</button>
           </div>
         )}
       </div>
