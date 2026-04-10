@@ -40,6 +40,9 @@ export default function SmartInbox() {
   const [gmailEmail, setGmailEmail] = useState('')
   const [importing, setImporting] = useState(false)
   const [importProgress, setImportProgress] = useState({ done: 0, total: 0 })
+  // Real composer (to actually send via Gmail)
+  const [composer, setComposer] = useState(null) // null | { to, cc, bcc, subject, body, attachments, replyToId, threadId, inReplyTo, references, showCcBcc }
+  const [sending, setSending] = useState(false)
 
   useEffect(() => {
     if (companyId) { loadEmails(); loadJobs(); loadClients(); checkGmail(); loadTeamAndConfig() }
@@ -149,6 +152,9 @@ export default function SmartInbox() {
           metadata: {
             gmail_id: email.gmail_id,
             thread_id: email.thread_id,
+            message_id: email.message_id || null,
+            to: email.to || '',
+            cc: email.cc || '',
             needs_full_analysis: true,
             date: email.date,
             linked_job_id: autoLinkedJobId,
@@ -245,6 +251,9 @@ export default function SmartInbox() {
             metadata: {
               gmail_id: email.gmail_id,
               thread_id: email.thread_id,
+              message_id: email.message_id || null,
+              to: email.to || '',
+              cc: email.cc || '',
               needs_full_analysis: true,
               needs_categorize: true,
               date: email.date,
@@ -733,6 +742,153 @@ Only return valid JSON.`, 256, 'haiku'
     showToast('Deleted'); setShowDetail(null); loadEmails()
   }
 
+  // Parse "Name <email@x.com>" → "email@x.com"
+  function extractEmail(addr) {
+    if (!addr) return ''
+    const m = addr.match(/<([^>]+)>/)
+    return (m ? m[1] : addr).trim()
+  }
+
+  function openCompose() {
+    if (!gmailConnected) { showToast('Connect Gmail first'); return }
+    setComposer({
+      to: '', cc: '', bcc: '', subject: '', body: '',
+      attachments: [], replyToId: null, threadId: null,
+      inReplyTo: null, references: null, showCcBcc: false
+    })
+  }
+
+  function openReplyComposer(email, prefillBody = '') {
+    if (!gmailConnected) { showToast('Connect Gmail first'); return }
+    const fromAddr = extractEmail(email.from_address)
+    const subj = email.subject || ''
+    const replySubject = /^re:/i.test(subj) ? subj : `Re: ${subj}`
+    const msgId = email.metadata?.message_id
+    const prevRefs = email.metadata?.references || ''
+    const refs = msgId ? `${prevRefs ? prevRefs + ' ' : ''}${msgId}`.trim() : prevRefs
+
+    // Build quoted body (Gmail convention)
+    const dateStr = email.metadata?.date ? new Date(email.metadata.date).toLocaleString('en-CA') : ''
+    const quotedLines = (email.body || '').split('\n').map(l => `> ${l}`).join('\n')
+    const quoteHeader = dateStr
+      ? `\n\nOn ${dateStr}, ${email.from_name || fromAddr} <${fromAddr}> wrote:\n`
+      : `\n\n${email.from_name || fromAddr} <${fromAddr}> wrote:\n`
+
+    setComposer({
+      to: fromAddr,
+      cc: '',
+      bcc: '',
+      subject: replySubject,
+      body: (prefillBody || email.draft_reply || '') + quoteHeader + quotedLines,
+      attachments: [],
+      replyToId: email.id,
+      threadId: email.metadata?.thread_id || null,
+      inReplyTo: msgId || null,
+      references: refs || null,
+      showCcBcc: false
+    })
+  }
+
+  async function handleAttachFile(e) {
+    const files = Array.from(e.target.files || [])
+    const newAttachments = []
+    for (const file of files) {
+      if (file.size > 25 * 1024 * 1024) {
+        showToast(`${file.name} too big (max 25MB)`)
+        continue
+      }
+      const b64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result.split(',')[1])
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+      newAttachments.push({ filename: file.name, mimeType: file.type || 'application/octet-stream', data: b64, size: file.size })
+    }
+    setComposer(c => c ? { ...c, attachments: [...c.attachments, ...newAttachments] } : c)
+    e.target.value = ''
+  }
+
+  async function sendComposer() {
+    if (!composer) return
+    if (!composer.to.trim()) { showToast('Recipient required'); return }
+    if (!composer.subject.trim() && !confirm('Send with no subject?')) return
+    setSending(true)
+    try {
+      const res = await fetch('/.netlify/functions/gmail-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: companyId,
+          to: composer.to,
+          cc: composer.cc,
+          bcc: composer.bcc,
+          subject: composer.subject,
+          body: composer.body,
+          attachments: composer.attachments,
+          thread_id: composer.threadId,
+          in_reply_to: composer.inReplyTo,
+          references: composer.references
+        })
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        showToast('Send failed: ' + (data.error || 'Unknown'))
+        setSending(false)
+        return
+      }
+
+      // Log as outbound in inbox_emails
+      const outboundRow = {
+        company_id: companyId,
+        from_address: data.from || gmailEmail,
+        from_name: 'Me',
+        subject: composer.subject,
+        body: composer.body,
+        raw_text: `To: ${composer.to}\nSubject: ${composer.subject}\n\n${composer.body}`,
+        categories: [],
+        priority: 'normal',
+        summary: composer.body.slice(0, 200),
+        status: 'sent',
+        metadata: {
+          gmail_id: data.gmail_id,
+          thread_id: data.thread_id,
+          direction: 'outbound',
+          to: composer.to,
+          cc: composer.cc,
+          bcc: composer.bcc,
+          date: new Date().toISOString(),
+          attachments: composer.attachments.map(a => ({ filename: a.filename, mimeType: a.mimeType, size: a.size })),
+          reply_to_email_id: composer.replyToId
+        }
+      }
+      await supabase.from('inbox_emails').insert(outboundRow)
+
+      // If this was a reply, mark original as actioned and log to linked job activity
+      if (composer.replyToId) {
+        await supabase.from('inbox_emails').update({ status: 'actioned', actioned_at: new Date().toISOString() }).eq('id', composer.replyToId)
+        const original = emails.find(e => e.id === composer.replyToId)
+        const jobId = original?.metadata?.linked_job_id
+        if (jobId) {
+          await supabase.from('job_activity').insert({
+            company_id: companyId, job_id: jobId, author_id: profile?.id,
+            type: 'email_sent',
+            content: `Replied to ${composer.to}: ${composer.subject}`,
+            metadata: { gmail_id: data.gmail_id, thread_id: data.thread_id }
+          })
+        }
+      }
+
+      showToast('Email sent')
+      setComposer(null)
+      setShowDetail(null)
+      loadEmails()
+    } catch (err) {
+      showToast('Send error: ' + err.message)
+    }
+    setSending(false)
+  }
+
   function formatEmailDate(email) {
     // Use Gmail date if available, otherwise created_at
     const dateStr = email.metadata?.date || email.created_at
@@ -792,10 +948,11 @@ Only return valid JSON.`, 256, 'haiku'
           <div style={{ fontSize: 16, fontWeight: 700 }}>Inbox</div>
           <div style={{ fontSize: 11, color: 'var(--text3)' }}>{totalEmails.toLocaleString()} emails</div>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           {!gmailConnected && <button onClick={connectGmail} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600, border: '1px solid rgba(0,212,160,0.2)', background: 'transparent', color: 'var(--primary)', cursor: 'pointer', fontFamily: 'DM Sans' }}>📧 Connect Gmail</button>}
           {gmailConnected && <>
             <span style={{ fontSize: 10, color: 'var(--text3)', alignSelf: 'center' }}>📧 {gmailEmail}</span>
+            <button onClick={openCompose} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, border: 'none', background: 'var(--primary)', color: '#000', cursor: 'pointer', fontFamily: 'DM Sans' }}>✍️ Compose</button>
             <button onClick={() => fetchGmailEmails(false)} disabled={syncing} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'DM Sans' }}>{syncing ? '⏳' : '🔄'}</button>
             <button onClick={() => { console.log('IMPORT CLICKED'); bulkImport() }} disabled={importing} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'DM Sans' }}>{importing ? '⏳' : '📥'}</button>
           </>}
@@ -1031,6 +1188,18 @@ Only return valid JSON.`, 256, 'haiku'
               </div>
             </div>
             <textarea id="reply-area" className="reply-area" defaultValue={showDetail.draft_reply || ''} placeholder="Write a reply..." />
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button
+                onClick={() => {
+                  const el = document.getElementById('reply-area')
+                  const text = el?.value || ''
+                  openReplyComposer(showDetail, text)
+                }}
+                disabled={!gmailConnected}
+                style={{ flex: 1, padding: '10px 14px', borderRadius: 8, border: 'none', background: gmailConnected ? 'var(--primary)' : 'var(--card2)', color: gmailConnected ? '#000' : 'var(--text3)', fontSize: 13, fontWeight: 700, cursor: gmailConnected ? 'pointer' : 'not-allowed', fontFamily: 'DM Sans' }}
+              >📤 Send Reply</button>
+            </div>
+            {!gmailConnected && <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>Connect Gmail to send replies directly</div>}
           </div>
 
           {/* Actions */}
@@ -1082,6 +1251,130 @@ Only return valid JSON.`, 256, 'haiku'
           <div className="form-field"><label className="form-label">Notes</label><textarea className="form-input" value={createJobForm.notes || ''} onChange={e => setCreateJobForm(f => ({ ...f, notes: e.target.value }))} /></div>
           <button className="btn btn-primary btn-full" style={{ marginTop: 8, padding: 14 }} onClick={confirmCreateJobFromEmail}>Create Job & Link Email</button>
           <button className="btn btn-secondary btn-full" style={{ marginTop: 8 }} onClick={() => setShowCreateJobModal(false)}>Cancel</button>
+        </Modal>
+      )}
+
+      {/* COMPOSER MODAL — real Gmail compose */}
+      {composer && (
+        <Modal title={composer.replyToId ? 'Reply' : 'New Message'} onClose={() => !sending && setComposer(null)}>
+          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>From:</span><span style={{ color: 'var(--text2)', fontWeight: 600 }}>{gmailEmail || 'Not connected'}</span>
+          </div>
+
+          {/* To */}
+          <div className="form-field">
+            <label className="form-label">To *</label>
+            <input
+              className="form-input"
+              placeholder="recipient@example.com"
+              value={composer.to}
+              onChange={e => setComposer(c => ({ ...c, to: e.target.value }))}
+              list="compose-contacts"
+            />
+            <datalist id="compose-contacts">
+              {clients.filter(c => c.email).map(c => (
+                <option key={c.id} value={c.email}>{c.name}</option>
+              ))}
+            </datalist>
+          </div>
+
+          {/* Cc/Bcc toggle */}
+          {!composer.showCcBcc && (
+            <button
+              onClick={() => setComposer(c => ({ ...c, showCcBcc: true }))}
+              style={{ background: 'none', border: 'none', color: 'var(--text3)', fontSize: 11, cursor: 'pointer', padding: '0 0 8px', fontFamily: 'DM Sans' }}
+            >+ Add Cc / Bcc</button>
+          )}
+          {composer.showCcBcc && <>
+            <div className="form-field">
+              <label className="form-label">Cc</label>
+              <input className="form-input" placeholder="cc@example.com" value={composer.cc} onChange={e => setComposer(c => ({ ...c, cc: e.target.value }))} />
+            </div>
+            <div className="form-field">
+              <label className="form-label">Bcc</label>
+              <input className="form-input" placeholder="bcc@example.com" value={composer.bcc} onChange={e => setComposer(c => ({ ...c, bcc: e.target.value }))} />
+            </div>
+          </>}
+
+          {/* Subject */}
+          <div className="form-field">
+            <label className="form-label">Subject</label>
+            <input className="form-input" placeholder="Subject" value={composer.subject} onChange={e => setComposer(c => ({ ...c, subject: e.target.value }))} />
+          </div>
+
+          {/* Template picker */}
+          {replyTemplates.length > 0 && (
+            <div className="form-field">
+              <label className="form-label">Insert template</label>
+              <select
+                className="form-input"
+                value=""
+                onChange={e => {
+                  if (!e.target.value) return
+                  const tpl = replyTemplates.find(t => t.id === e.target.value)
+                  if (tpl) {
+                    const ctx = composer.replyToId ? emails.find(em => em.id === composer.replyToId) : null
+                    const applied = ctx ? applyTemplate(tpl, ctx) : (tpl.body || '')
+                    setComposer(c => ({ ...c, body: applied + (c.body ? '\n\n' + c.body : '') }))
+                  }
+                  e.target.value = ''
+                }}
+              >
+                <option value="">-- Pick a template --</option>
+                {replyTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Body */}
+          <div className="form-field">
+            <label className="form-label">Message</label>
+            <textarea
+              className="form-input"
+              style={{ minHeight: 240, fontFamily: 'DM Sans', lineHeight: 1.6 }}
+              placeholder="Write your message..."
+              value={composer.body}
+              onChange={e => setComposer(c => ({ ...c, body: e.target.value }))}
+            />
+          </div>
+
+          {/* Attachments */}
+          <div className="form-field">
+            <label className="form-label">Attachments</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {composer.attachments.map((att, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--bg2)', borderRadius: 8, fontSize: 12 }}>
+                  <span>{att.mimeType?.includes('image') ? '🖼️' : att.mimeType?.includes('pdf') ? '📄' : '📎'}</span>
+                  <span style={{ flex: 1, color: 'var(--text2)' }}>{att.filename}</span>
+                  <span style={{ fontSize: 10, color: 'var(--text3)' }}>{(att.size / 1024).toFixed(0)} KB</span>
+                  <button
+                    onClick={() => setComposer(c => ({ ...c, attachments: c.attachments.filter((_, j) => j !== i) }))}
+                    style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 14 }}
+                  >×</button>
+                </div>
+              ))}
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', border: '1px dashed var(--border)', borderRadius: 8, cursor: 'pointer', fontSize: 11, color: 'var(--text3)', fontFamily: 'DM Sans', alignSelf: 'flex-start' }}>
+                📎 Attach files
+                <input type="file" multiple onChange={handleAttachFile} style={{ display: 'none' }} />
+              </label>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+            <button
+              className="btn btn-primary"
+              style={{ flex: 1, padding: 14, fontWeight: 700 }}
+              disabled={sending || !composer.to.trim()}
+              onClick={sendComposer}
+            >{sending ? 'Sending...' : '📤 Send'}</button>
+            <button
+              className="btn btn-secondary"
+              style={{ padding: '14px 20px' }}
+              disabled={sending}
+              onClick={() => setComposer(null)}
+            >Cancel</button>
+          </div>
         </Modal>
       )}
     </div>
