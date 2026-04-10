@@ -1,43 +1,26 @@
-/* ═══════════════════════════════════════════════
-   INBOX VISUAL OVERRIDE — Front-inspired clean look
-   Overrides inline styles with !important where needed
-   ═══════════════════════════════════════════════ */
+/* Inbox visual overhaul */
 
-/* Hide the old page-header on inbox */
-#s-inbox .page-header,
-.inbox-page > .page-header {
-  display: none !important;
+.email-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.1s;
+  position: relative;
 }
-
-/* Make the card-based email items look like clean rows */
-.inbox-list .card,
-.sec .card[class] {
-  /* Don't override all cards — only inbox ones */
+.email-row:hover {
+  background: var(--card);
 }
-
-/* Email list items — override card style to rows */
-.email-item {
-  background: transparent !important;
-  border: none !important;
-  border-bottom: 1px solid var(--border) !important;
-  border-radius: 0 !important;
-  padding: 14px 20px !important;
-  margin: 0 !important;
-  display: flex !important;
-  align-items: flex-start !important;
-  gap: 14px !important;
-  transition: background 0.1s !important;
+.email-row:active {
+  background: var(--card2);
 }
-.email-item:hover {
-  background: var(--card) !important;
+.email-row.unread {
+  background: rgba(0,212,160,0.02);
 }
-.email-item:active {
-  background: var(--card2) !important;
-}
-.email-item.unread {
-  background: rgba(0,212,160,0.02) !important;
-}
-.email-item.unread::before {
+.email-row.unread::before {
   content: '';
   position: absolute;
   left: 0;
@@ -45,325 +28,119 @@
   bottom: 0;
   width: 3px;
   background: var(--primary);
-  border-radius: 0 2px 2px 0;
 }
 
-/* Avatar circle */
-.email-avatar {
-  width: 40px !important;
-  height: 40px !important;
-  border-radius: 50% !important;
-  font-size: 15px !important;
-  font-weight: 700 !important;
-  flex-shrink: 0 !important;
-  color: #fff !important;
+.email-av {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  max-width: 40px;
+  max-height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  flex-shrink: 0;
+  color: #fff;
 }
 
-/* Email content layout */
-.email-content {
-  flex: 1 !important;
-  min-width: 0 !important;
+.email-body-wrap {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.email-sender {
-  font-size: 14px !important;
-  margin-bottom: 2px !important;
+.email-from {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.email-sender.unread {
-  font-weight: 800 !important;
-  color: var(--text) !important;
-}
-.email-sender.read {
-  font-weight: 600 !important;
-  color: var(--text2) !important;
-}
-
-.email-subject {
-  font-size: 13px !important;
-  font-weight: 500 !important;
-  color: var(--text) !important;
-  margin-bottom: 2px !important;
+.email-row.unread .email-from {
+  font-weight: 800;
 }
 
-.email-preview {
-  font-size: 12px !important;
-  color: var(--text3) !important;
+.email-subj {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text2);
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.email-badges {
-  gap: 4px !important;
-  margin-top: 6px !important;
-}
-.email-badge {
-  padding: 2px 7px !important;
-  border-radius: 4px !important;
-  font-size: 10px !important;
-  font-weight: 700 !important;
+.email-snippet {
+  font-size: 12px;
+  color: var(--text3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.email-meta {
-  flex-shrink: 0 !important;
-}
-.email-date {
-  font-size: 11px !important;
-  color: var(--text3) !important;
-}
-
-/* ─── TABS — underline style like Front ───── */
-.inbox-tabs {
-  display: flex !important;
-  background: transparent !important;
-  border-radius: 0 !important;
-  padding: 0 !important;
-  border-bottom: 1px solid var(--border) !important;
-  margin: 0 16px !important;
-  overflow: visible !important;
-}
-.inbox-tabs button {
-  padding: 10px 16px !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  border-bottom: 2px solid transparent !important;
-  box-shadow: none !important;
-  font-size: 13px !important;
-  color: var(--text3) !important;
-  transition: all 0.15s !important;
-}
-.inbox-tabs button.active {
-  color: var(--text) !important;
-  border-bottom-color: var(--primary) !important;
-  background: transparent !important;
-  box-shadow: none !important;
+.email-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 5px;
 }
 
-/* ─── SEARCH — cleaner ────────────────────── */
-.search-bar {
-  margin: 8px 20px !important;
-}
-.search-bar input {
-  background: var(--bg2) !important;
-  border-color: var(--border) !important;
-  border-radius: 8px !important;
-  padding: 9px 14px 9px 36px !important;
-  font-size: 13px !important;
+.etag {
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  display: inline-block;
 }
 
-/* ─── FILTER PILLS — minimal ─────────────── */
-.inbox-filter-pill,
-[style*="borderRadius: 6"] {
-  font-size: 11px !important;
+.email-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+  padding-top: 2px;
 }
 
-/* ─── PAGINATION — clean ──────────────────── */
+.email-time {
+  font-size: 11px;
+  color: var(--text3);
+  white-space: nowrap;
+}
+
+/* Pagination */
 .inbox-pagination {
-  padding: 12px 20px !important;
-  border-top: 1px solid var(--border) !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
 }
 .inbox-pagination button {
-  padding: 7px 14px !important;
-  border-radius: 8px !important;
-  font-weight: 600 !important;
-  background: transparent !important;
-}
-.inbox-pagination button:hover:not(:disabled) {
-  background: var(--card) !important;
-}
-
-/* ─── DETAIL VIEW ─────────────────────────── */
-
-/* Make modal content cleaner */
-.modal .email-detail-header {
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 16px;
-  margin-bottom: 16px;
-}
-.modal .email-detail-subject {
-  font-size: 20px;
-  font-weight: 800;
-  line-height: 1.3;
-}
-
-/* Email body in detail — the actual email content */
-.email-full-body {
-  font-size: 14px !important;
-  line-height: 1.8 !important;
-  color: var(--text) !important;
-  padding: 20px !important;
-  background: var(--bg2) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 12px !important;
-  margin-bottom: 16px !important;
-  max-height: 50vh !important;
-  overflow-y: auto !important;
-  white-space: pre-wrap !important;
-  word-break: break-word !important;
-}
-
-/* Toolbar in email detail */
-.email-detail-toolbar {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 10px 0;
-  margin-bottom: 12px;
-  border-bottom: 1px solid var(--border);
-}
-.email-detail-toolbar select,
-.email-detail-toolbar .toolbar-btn,
-.email-detail-toolbar button {
-  padding: 6px 12px !important;
-  border-radius: 8px !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  border: 1px solid var(--border) !important;
-  background: transparent !important;
-  color: var(--text2) !important;
-  cursor: pointer !important;
-  font-family: 'DM Sans', sans-serif !important;
-  outline: none !important;
-}
-.email-detail-toolbar select:hover,
-.email-detail-toolbar button:hover {
-  border-color: var(--text3) !important;
-  color: var(--text) !important;
-}
-
-/* AI button */
-.ai-analyze-btn {
-  width: 100% !important;
-  padding: 14px !important;
-  border-radius: 12px !important;
-  margin-bottom: 16px !important;
-  background: linear-gradient(135deg, rgba(0,212,160,0.06), rgba(0,153,255,0.06)) !important;
-  border: 1px solid rgba(0,212,160,0.15) !important;
-  cursor: pointer !important;
-  font-size: 14px !important;
-  font-weight: 700 !important;
-  color: var(--primary) !important;
-  font-family: 'DM Sans', sans-serif !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 8px !important;
-}
-.ai-analyze-btn:hover {
-  background: linear-gradient(135deg, rgba(0,212,160,0.1), rgba(0,153,255,0.1)) !important;
-}
-
-/* AI result */
-.ai-section {
-  background: rgba(0,212,160,0.04) !important;
-  border: 1px solid rgba(0,212,160,0.12) !important;
-  border-radius: 12px !important;
-  padding: 16px !important;
-  margin-bottom: 16px !important;
-}
-
-/* Comments section */
-.comments-section {
-  background: var(--bg2) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 12px !important;
-  overflow: hidden !important;
-  margin-bottom: 16px !important;
-}
-
-/* Attachment chips */
-.attach-chips {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-}
-.attach-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
+  padding: 7px 14px;
   border-radius: 8px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--text2);
-  cursor: pointer;
-}
-.attach-chip:hover {
-  border-color: var(--text3);
-}
-
-/* Linked job bar */
-.linked-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  background: rgba(33,150,243,0.04);
-  border: 1px solid rgba(33,150,243,0.12);
-  border-radius: 10px;
-  margin-bottom: 16px;
-}
-
-/* Reply area */
-.reply-area {
-  width: 100%;
-  background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px;
-  font-size: 14px;
-  line-height: 1.7;
-  color: var(--text);
-  font-family: 'DM Sans', sans-serif;
-  outline: none;
-  resize: none;
-  min-height: 140px;
-}
-.reply-area:focus {
-  border-color: rgba(0,212,160,0.3);
-}
-
-/* ─── GMAIL BAR — minimal ─────────────────── */
-.inbox-gmail-bar {
-  margin: 0 20px 8px !important;
-  padding: 8px 14px !important;
-  border-radius: 10px !important;
-}
-
-/* ─── COMPOSE BAR — subtle ────────────────── */
-.inbox-compose-btn {
-  margin: 0 20px 8px;
-  padding: 10px;
-  border-radius: 10px;
-  border: 1px dashed var(--border);
   background: transparent;
-  color: var(--text3);
-  font-size: 12px;
-  text-align: center;
+  color: var(--text2);
   cursor: pointer;
   font-family: 'DM Sans', sans-serif;
-  width: calc(100% - 40px);
 }
-.inbox-compose-btn:hover {
-  border-color: var(--text3);
-  color: var(--text2);
+.inbox-pagination button:disabled {
+  opacity: 0.25;
+  cursor: default;
 }
-
-/* ─── MOBILE ADJUSTMENTS ──────────────────── */
-@media (max-width: 480px) {
-  .email-item {
-    padding: 12px 16px !important;
-    gap: 10px !important;
-  }
-  .email-avatar {
-    width: 36px !important;
-    height: 36px !important;
-    font-size: 13px !important;
-  }
-  .email-sender {
-    font-size: 13px !important;
-  }
-  .email-subject {
-    font-size: 12px !important;
-  }
+.inbox-pagination span {
+  font-size: 12px;
+  color: var(--text3);
 }
