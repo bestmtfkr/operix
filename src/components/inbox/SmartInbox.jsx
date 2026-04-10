@@ -666,7 +666,8 @@ Only return valid JSON.`, 256, 'haiku'
   const [opening, setOpening] = useState(false)
 
   async function openEmail(email) {
-    if (opening || showDetail) return // Prevent double-tap
+    // Allow switching between emails — only block if it's the same one already open
+    if (showDetail?.id === email.id) return
     setOpening(true)
 
     // Open detail immediately with list-row data — body fetches in background
