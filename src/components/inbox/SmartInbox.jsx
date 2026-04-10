@@ -635,51 +635,12 @@ Only return valid JSON.`, 256, 'haiku'
       email.status = 'read'
     }
 
-    // Run FULL analysis with Sonnet if not done yet (on-demand, only when user opens)
-    if (email.metadata?.needs_full_analysis) {
-      const body = (email.body || email.raw_text || '').slice(0, 2000)
-      const fullText = `From: ${email.from_name || email.from_address}\nSubject: ${email.subject}\n\n${body}`
-      Promise.race([
-        analyzeEmailFull(fullText),
-        new Promise(r => setTimeout(() => r(null), 15000)) // 15s timeout
-      ]).then(async (fullResult) => {
-        if (fullResult) {
-          // Update in database
-          await supabase.from('inbox_emails').update({
-            summary: fullResult.summary || email.summary,
-            draft_reply: fullResult.draft_reply || '',
-            metadata: {
-              ...email.metadata,
-              needs_full_analysis: false,
-              extracted_data: fullResult.extracted_data || {}
-            }
-          }).eq('id', email.id)
+    // AI is now ON DEMAND — user clicks "🤖 AI Summary" button in the detail view
+    // No auto-analysis = no API cost until user explicitly requests it
 
-          // Update the modal
-          const updated = {
-            ...email,
-            summary: fullResult.summary || email.summary,
-            draft_reply: fullResult.draft_reply || '',
-            metadata: { ...email.metadata, needs_full_analysis: false, extracted_data: fullResult.extracted_data || {} },
-            _openedFrom: tab,
-            _analyzing: false
-          }
-          setShowDetail(prev => prev?.id === email.id ? updated : prev)
-        } else {
-          // Timed out or failed — stop spinner
-          setShowDetail(prev => prev?.id === email.id ? { ...prev, _analyzing: false } : prev)
-        }
-      })
-    }
-
-    // Suggest job match in background
-    if (!email.metadata?.linked_job_id && !email._suggestion) {
-      suggestJobMatch(email).then(suggestion => {
-        if (suggestion) {
-          email._suggestion = suggestion
-          setShowDetail(prev => prev?.id === email.id ? { ...prev, _suggestion: suggestion } : prev)
-        }
-      })
+    // Check if already analyzed
+    if (email.summary && !email.metadata?.needs_full_analysis) {
+      email._aiLoaded = true
     }
 
     setOpening(false)
@@ -1025,40 +986,55 @@ Only return valid JSON.`, 256, 'haiku'
         )}
       </div>
 
-      {/* Email Detail Modal */}
+      {/* Email Detail Modal — email-first, AI on demand */}
       {showDetail && (
         <Modal title={null} onClose={() => setShowDetail(null)}>
-          {/* Sort mode banner */}
-          {showDetail._openedFrom === 'suggestions' && !showDetail.metadata?.linked_job_id && (
-            <div style={{
-              background: 'rgba(255,184,0,0.08)', border: '1px solid rgba(255,184,0,0.2)',
-              borderRadius: 12, padding: '12px 14px', marginBottom: 14,
-              display: 'flex', alignItems: 'center', gap: 10
-            }}>
-              <span style={{ fontSize: 20 }}>📂</span>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--yellow)' }}>Sort this email</div>
-                <div style={{ fontSize: 11, color: 'var(--text3)' }}>Link it to an existing job or create a new one</div>
-              </div>
+          {/* Email header — like a real email client */}
+          <div className="email-detail-header">
+            <div className="email-detail-subject">{showDetail.subject}</div>
+            <div className="email-detail-meta">
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{showDetail.from_name || showDetail.from_address}</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>{formatEmailDate(showDetail)}</div>
+              {(showDetail.categories || []).map(c => {
+                const s = CAT_COLORS[c] || CAT_COLORS.client
+                return <span key={c} className="email-badge" style={{ background: s.bg, color: s.color }}>{c.toUpperCase()}</span>
+              })}
             </div>
-          )}
-
-          {/* Header */}
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-                {showDetail.from_name || showDetail.from_address}
-              </div>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {(showDetail.categories || []).map(c => {
-                  const s = CAT_COLORS[c] || CAT_COLORS.client
-                  return <span key={c} style={{ padding: '3px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700, background: s.bg, color: s.color }}>{c.toUpperCase()}</span>
-                })}
-                {showDetail.priority === 'urgent' && <span style={{ padding: '3px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700, background: 'rgba(255,59,92,0.12)', color: '#FF3B5C' }}>URGENT</span>}
-              </div>
-            </div>
-            <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.3 }}>{showDetail.subject}</div>
           </div>
+
+          {/* Toolbar — assignment, SLA, actions */}
+          <div className="email-detail-toolbar">
+            {emailConfig.email_assignment && (
+              <select value={showDetail.assigned_to || ''} onChange={e => assignEmail(showDetail.id, e.target.value || null)} className="toolbar-btn">
+                <option value="">👤 Assign</option>
+                {teamMembers.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
+              </select>
+            )}
+            {!showDetail.metadata?.linked_job_id && (
+              <select className="toolbar-btn" onChange={e => { if (e.target.value) linkEmailToJob(showDetail.id, e.target.value) }}>
+                <option value="">🔗 Link to job</option>
+                {jobs.map(j => <option key={j.id} value={j.id}>{j.job_number} — {j.name}</option>)}
+              </select>
+            )}
+            {!showDetail.metadata?.linked_job_id && (
+              <button className="toolbar-btn" onClick={() => startCreateJobFromEmail(showDetail)}>+ New Job</button>
+            )}
+            {(() => { const sla = getSlaStatus(showDetail); return sla && sla.status !== 'ok' ? (
+              <div className="toolbar-btn" style={{ color: sla.color, borderColor: sla.color + '40' }}>⏱ {sla.label}</div>
+            ) : null })()}
+          </div>
+
+          {/* Linked job banner */}
+          {showDetail.metadata?.linked_job_id && (() => {
+            const lj = jobs.find(j => j.id === showDetail.metadata.linked_job_id)
+            return lj ? (
+              <div style={{ background: 'rgba(33,150,243,0.06)', border: '1px solid rgba(33,150,243,0.15)', borderRadius: 12, padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span>🔗</span>
+                <div style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{lj.job_number} — {lj.name}</div>
+                <button onClick={() => unlinkEmail(showDetail.id)} style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'DM Sans' }}>Unlink</button>
+              </div>
+            ) : null
+          })()}
 
           {/* Linked status */}
           {showDetail.metadata?.linked_job_id && (() => {
@@ -1079,123 +1055,79 @@ Only return valid JSON.`, 256, 'haiku'
             ) : null
           })()}
 
-          {/* AI Summary */}
-          <div style={{ background: 'rgba(0,212,160,0.04)', border: '1px solid rgba(0,212,160,0.12)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <span style={{ fontSize: 14 }}>🤖</span>
-              <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--primary)', letterSpacing: 0.5 }}>AI SUMMARY</span>
-              {showDetail._analyzing && <div className="spinner" style={{ width: 12, height: 12, borderWidth: 2, marginLeft: 4 }} />}
-            </div>
-            <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.7 }}>
-              {showDetail.summary}
-              {showDetail._analyzing && <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 8 }}>Running deep analysis...</div>}
-            </div>
+          {/* EMAIL BODY — the actual email, shown first */}
+          <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.8, whiteSpace: 'pre-wrap', marginBottom: 14, maxHeight: 400, overflow: 'auto', padding: 16, background: 'var(--bg2)', borderRadius: 12 }}>
+            {showDetail.body || showDetail.raw_text || 'No email body available'}
           </div>
 
-          {/* AI Job Suggestion */}
-          {!showDetail.metadata?.linked_job_id && !showDetail._suggestion && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', marginBottom: 14, background: 'var(--bg2)', borderRadius: 12 }}>
-              <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-              <span style={{ color: 'var(--text3)', fontSize: 13 }}>Finding matching job...</span>
+          {/* Attachments — right after email body */}
+          {showDetail.metadata?.attachments?.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+              {showDetail.metadata.attachments.map((att, i) => (
+                <div key={i} onClick={() => downloadAttachment(showDetail, att)} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  background: 'var(--bg2)', border: '1px solid var(--border)',
+                  borderRadius: 10, padding: '8px 12px', cursor: 'pointer', fontSize: 12
+                }}>
+                  <span>{att.mimeType?.includes('image') ? '🖼️' : att.mimeType?.includes('pdf') ? '📄' : '📎'}</span>
+                  <span style={{ fontWeight: 600, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</span>
+                </div>
+              ))}
             </div>
           )}
 
-          {showDetail._suggestion && showDetail._suggestion.job_id && !showDetail.metadata?.linked_job_id && (() => {
+          {/* AI — on demand button */}
+          {!showDetail._aiLoaded && (
+            <button onClick={async () => {
+              setShowDetail(prev => ({ ...prev, _analyzing: true }))
+              const fullText = `From: ${showDetail.from_name || showDetail.from_address}\nSubject: ${showDetail.subject}\n\n${(showDetail.body || '').slice(0, 2000)}`
+              const result = await analyzeEmailFull(fullText)
+              if (result) {
+                await supabase.from('inbox_emails').update({
+                  summary: result.summary || '', draft_reply: result.draft_reply || '',
+                  metadata: { ...showDetail.metadata, needs_full_analysis: false, extracted_data: result.extracted_data || {} }
+                }).eq('id', showDetail.id)
+                setShowDetail(prev => prev?.id === showDetail.id ? { ...prev, summary: result.summary, draft_reply: result.draft_reply, metadata: { ...prev.metadata, extracted_data: result.extracted_data }, _aiLoaded: true, _analyzing: false } : prev)
+              } else {
+                setShowDetail(prev => ({ ...prev, _analyzing: false }))
+              }
+            }} disabled={showDetail._analyzing} style={{
+              width: '100%', padding: 14, borderRadius: 12, marginBottom: 14,
+              background: showDetail._analyzing ? 'var(--card2)' : 'linear-gradient(135deg, rgba(0,212,160,0.08), rgba(0,153,255,0.08))',
+              border: '1px solid rgba(0,212,160,0.2)', cursor: 'pointer',
+              fontSize: 13, fontWeight: 700, color: showDetail._analyzing ? 'var(--text3)' : 'var(--primary)',
+              fontFamily: 'DM Sans', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
+            }}>
+              {showDetail._analyzing ? <><div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Analyzing...</> : '🤖 AI Summary & Draft Reply'}
+            </button>
+          )}
+
+          {/* AI Results — only shown after user clicks the button */}
+          {showDetail._aiLoaded && showDetail.summary && (
+            <div className="ai-section" style={{ marginBottom: 14 }}>
+              <div className="ai-section-header">
+                <span>🤖</span>
+                <span className="ai-label">AI SUMMARY</span>
+              </div>
+              <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.7 }}>{showDetail.summary}</div>
+            </div>
+          )}
+
+          {/* AI Job Suggestion — only after AI is loaded */}
+          {showDetail._aiLoaded && showDetail._suggestion?.job_id && !showDetail.metadata?.linked_job_id && (() => {
             const suggestedJob = jobs.find(j => j.id === showDetail._suggestion.job_id)
             return suggestedJob ? (
-              <div style={{ background: 'rgba(33,150,243,0.06)', border: '1px solid rgba(33,150,243,0.2)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                  <span style={{ fontSize: 14 }}>🤖</span>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--blue)', letterSpacing: 0.5 }}>AI SUGGESTS LINKING TO</span>
-                </div>
-                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>{suggestedJob.name}</div>
-                <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 4 }}>{suggestedJob.job_number} · {suggestedJob.clients?.name}</div>
-                <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12, lineHeight: 1.5 }}>
-                  Confidence: <strong>{showDetail._suggestion.confidence}</strong> — {showDetail._suggestion.reason}
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => linkEmailToJob(showDetail.id, suggestedJob.id)} className="btn btn-primary" style={{ flex: 1, padding: 12, fontSize: 13 }}>
-                    ✓ Confirm Link
-                  </button>
-                  <button onClick={() => { showDetail._suggestion = null; setShowDetail({ ...showDetail }) }} className="btn btn-secondary" style={{ padding: '12px 16px', fontSize: 13 }}>
-                    ✕ Wrong
-                  </button>
+              <div style={{ background: 'rgba(33,150,243,0.06)', border: '1px solid rgba(33,150,243,0.2)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--blue)', marginBottom: 6 }}>🤖 SUGGESTED JOB</div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{suggestedJob.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{suggestedJob.job_number} · {suggestedJob.clients?.name}</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button onClick={() => linkEmailToJob(showDetail.id, suggestedJob.id)} className="btn btn-primary" style={{ flex: 1, padding: 10, fontSize: 12 }}>✓ Link</button>
+                  <button onClick={() => setShowDetail(prev => ({ ...prev, _suggestion: null }))} className="btn btn-secondary" style={{ padding: '10px 14px', fontSize: 12 }}>✕</button>
                 </div>
               </div>
             ) : null
           })()}
-
-          {/* Manual link */}
-          {!showDetail.metadata?.linked_job_id && (
-            <div style={{ marginBottom: 14 }}>
-              <label className="form-label">LINK TO JOB MANUALLY</label>
-              <select className="form-input" onChange={e => { if (e.target.value) linkEmailToJob(showDetail.id, e.target.value) }}>
-                <option value="">Select job...</option>
-                {jobs.map(j => <option key={j.id} value={j.id}>{j.job_number} — {j.name} ({j.clients?.name})</option>)}
-              </select>
-            </div>
-          )}
-
-          {/* Attachments */}
-          {showDetail.metadata?.attachments?.length > 0 && (
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, marginBottom: 8 }}>
-                ATTACHMENTS ({showDetail.metadata.attachments.length})
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {showDetail.metadata.attachments.map((att, i) => (
-                  <div key={i} onClick={() => downloadAttachment(showDetail, att)} style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    background: 'var(--bg2)', border: '1px solid var(--border)',
-                    borderRadius: 12, padding: '10px 14px', cursor: 'pointer'
-                  }}>
-                    <span style={{ fontSize: 20 }}>
-                      {att.mimeType?.includes('image') ? '🖼️' :
-                       att.mimeType?.includes('pdf') ? '📄' :
-                       att.mimeType?.includes('spreadsheet') || att.mimeType?.includes('excel') ? '📊' :
-                       att.mimeType?.includes('word') || att.mimeType?.includes('document') ? '📝' : '📎'}
-                    </span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text3)' }}>{att.size ? (att.size / 1024).toFixed(0) + ' KB' : ''}</div>
-                    </div>
-                    <span style={{ fontSize: 11, color: 'var(--primary)', fontWeight: 700 }}>Download</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Front-inspired features bar */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-            {/* Assignment */}
-            {emailConfig.email_assignment && (
-              <select value={showDetail.assigned_to || ''} onChange={e => assignEmail(showDetail.id, e.target.value || null)}
-                style={{
-                  padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                  background: showDetail.assigned_to ? 'rgba(139,92,246,0.1)' : 'var(--bg2)',
-                  border: `1px solid ${showDetail.assigned_to ? 'rgba(139,92,246,0.2)' : 'var(--border)'}`,
-                  color: showDetail.assigned_to ? 'var(--purple)' : 'var(--text3)',
-                  outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer'
-                }}>
-                <option value="">👤 Unassigned</option>
-                {teamMembers.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
-              </select>
-            )}
-
-            {/* SLA */}
-            {(() => {
-              const sla = getSlaStatus(showDetail)
-              return sla ? (
-                <div style={{
-                  padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                  background: sla.status === 'breached' ? 'rgba(255,59,92,0.1)' : sla.status === 'warning' ? 'rgba(255,184,0,0.1)' : sla.status === 'resolved' ? 'rgba(0,212,160,0.1)' : 'var(--bg2)',
-                  color: sla.color || 'var(--text3)',
-                  border: '1px solid var(--border)'
-                }}>⏱ {sla.label}</div>
-              ) : null
-            })()}
-          </div>
 
           {/* Internal Comments */}
           {emailConfig.email_comments && (
@@ -1203,18 +1135,16 @@ Only return valid JSON.`, 256, 'haiku'
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, marginBottom: 6 }}>
                 INTERNAL COMMENTS ({(showDetail.comments || []).length})
               </div>
-              <div style={{ background: 'var(--bg2)', borderRadius: 12, overflow: 'hidden', marginBottom: 8 }}>
+              <div className="comments-section">
                 {(showDetail.comments || []).length === 0 ? (
-                  <div style={{ padding: 12, textAlign: 'center', fontSize: 11, color: 'var(--text3)' }}>No comments yet — only your team sees these</div>
+                  <div style={{ padding: 12, textAlign: 'center', fontSize: 11, color: 'var(--text3)' }}>Only your team sees these</div>
                 ) : (showDetail.comments || []).map((c, i) => (
-                  <div key={i} style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--purple)' }}>{c.user}</span>
-                      <span style={{ fontSize: 9, color: 'var(--text3)' }}>
-                        {new Date(c.time).toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                  <div key={i} className="comment-item">
+                    <div className="comment-header">
+                      <span className="comment-author">{c.user}</span>
+                      <span className="comment-time">{new Date(c.time).toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>{c.text}</div>
+                    <div className="comment-text">{c.text}</div>
                   </div>
                 ))}
               </div>
