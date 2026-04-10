@@ -4,7 +4,6 @@ import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../shared/Toast'
 import Modal from '../shared/Modal'
 import { categorizeEmail, analyzeEmailFull, askAIJSON } from '../../lib/ai'
-import './Inbox.css'
 
 const CAT_COLORS = {
   insurance: { bg: 'rgba(139,92,246,0.12)', color: '#8B5CF6' },
@@ -635,12 +634,51 @@ Only return valid JSON.`, 256, 'haiku'
       email.status = 'read'
     }
 
-    // AI is now ON DEMAND — user clicks "🤖 AI Summary" button in the detail view
-    // No auto-analysis = no API cost until user explicitly requests it
+    // Run FULL analysis with Sonnet if not done yet (on-demand, only when user opens)
+    if (email.metadata?.needs_full_analysis) {
+      const body = (email.body || email.raw_text || '').slice(0, 2000)
+      const fullText = `From: ${email.from_name || email.from_address}\nSubject: ${email.subject}\n\n${body}`
+      Promise.race([
+        analyzeEmailFull(fullText),
+        new Promise(r => setTimeout(() => r(null), 15000)) // 15s timeout
+      ]).then(async (fullResult) => {
+        if (fullResult) {
+          // Update in database
+          await supabase.from('inbox_emails').update({
+            summary: fullResult.summary || email.summary,
+            draft_reply: fullResult.draft_reply || '',
+            metadata: {
+              ...email.metadata,
+              needs_full_analysis: false,
+              extracted_data: fullResult.extracted_data || {}
+            }
+          }).eq('id', email.id)
 
-    // Check if already analyzed
-    if (email.summary && !email.metadata?.needs_full_analysis) {
-      email._aiLoaded = true
+          // Update the modal
+          const updated = {
+            ...email,
+            summary: fullResult.summary || email.summary,
+            draft_reply: fullResult.draft_reply || '',
+            metadata: { ...email.metadata, needs_full_analysis: false, extracted_data: fullResult.extracted_data || {} },
+            _openedFrom: tab,
+            _analyzing: false
+          }
+          setShowDetail(prev => prev?.id === email.id ? updated : prev)
+        } else {
+          // Timed out or failed — stop spinner
+          setShowDetail(prev => prev?.id === email.id ? { ...prev, _analyzing: false } : prev)
+        }
+      })
+    }
+
+    // Suggest job match in background
+    if (!email.metadata?.linked_job_id && !email._suggestion) {
+      suggestJobMatch(email).then(suggestion => {
+        if (suggestion) {
+          email._suggestion = suggestion
+          setShowDetail(prev => prev?.id === email.id ? { ...prev, _suggestion: suggestion } : prev)
+        }
+      })
     }
 
     setOpening(false)
@@ -912,8 +950,8 @@ Only return valid JSON.`, 256, 'haiku'
         </div>
       </div>
 
-      {/* Email List — Front-inspired */}
-      <div className="inbox-list">
+      {/* Email List */}
+      <div className="sec">
         {displayEmails.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">{tab === 'suggestions' ? '✅' : tab === 'linked' ? '🔗' : '📬'}</div>
@@ -922,7 +960,7 @@ Only return valid JSON.`, 256, 'haiku'
             </div>
             <div className="empty-sub">
               {tab === 'suggestions' ? 'All emails have been linked to jobs' :
-                gmailConnected ? 'Emails sync automatically' : 'Connect Gmail or paste an email'}
+                gmailConnected ? 'Tap Sync Now to pull new emails' : 'Connect Gmail or paste an email'}
             </div>
           </div>
         ) : displayEmails.map(email => {
@@ -930,47 +968,46 @@ Only return valid JSON.`, 256, 'haiku'
           const catStyle = CAT_COLORS[cat] || CAT_COLORS.client
           const isLinked = email.metadata?.linked_job_id
           const linkedJob = isLinked ? jobs.find(j => j.id === isLinked) : null
-          const initials = (email.from_name || email.from_address || '?').charAt(0).toUpperCase()
-          const sla = getSlaStatus(email)
-          const assignee = emailConfig.email_assignment && email.assigned_to ? teamMembers.find(m => m.id === email.assigned_to) : null
 
           return (
-            <div key={email.id} className={`email-item ${email.status === 'unread' ? 'unread' : ''}`} onClick={() => openEmail(email)}>
-              {/* Avatar */}
-              <div className="email-avatar" style={{
-                background: cat === 'insurance' ? 'rgba(139,92,246,0.15)' :
-                  cat === 'urgent' ? 'rgba(255,59,92,0.15)' :
-                  cat === 'supplier' ? 'rgba(33,150,243,0.15)' : 'rgba(0,212,160,0.1)',
-                color: catStyle.color
-              }}>{initials}</div>
-
-              {/* Content */}
-              <div className="email-content">
-                <div className={`email-sender ${email.status === 'unread' ? 'unread' : 'read'}`}>
+            <div key={email.id} className="card" onClick={() => openEmail(email)} style={{
+              borderLeft: email.status === 'unread' ? '3px solid var(--primary)' :
+                isLinked ? '3px solid var(--blue)' : '3px solid transparent',
+              position: 'relative', zIndex: 1, cursor: 'pointer'
+            }}>
+              {/* Primary line — address or name based on sort mode */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <div style={{ fontSize: 13, fontWeight: email.status === 'unread' ? 800 : 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {sortMode === 'address'
-                    ? (email.metadata?.extracted_data?.address || email.subject)
+                    ? (email.metadata?.extracted_data?.address || email.metadata?.extracted_data?.unit_numbers
+                        ? `📍 ${email.metadata?.extracted_data?.address || ''}${email.metadata?.extracted_data?.unit_numbers ? ' · Unit ' + email.metadata.extracted_data.unit_numbers : ''}`
+                        : email.subject)
                     : (email.from_name || email.from_address || 'Unknown')
                   }
-                  {assignee && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(139,92,246,0.1)', color: 'var(--purple)', fontWeight: 700 }}>{assignee.full_name?.split(' ')[0]}</span>}
                 </div>
-                <div className="email-subject">{email.subject}</div>
-                <div className="email-preview">{email.summary || email.body?.slice(0, 100)}</div>
-                <div className="email-badges">
-                  <span className="email-badge" style={{ background: catStyle.bg, color: catStyle.color }}>{cat.toUpperCase()}</span>
-                  {email.priority === 'urgent' && <span className="email-badge" style={{ background: 'rgba(255,59,92,0.12)', color: '#FF3B5C' }}>URGENT</span>}
-                  {isLinked && linkedJob && <span className="email-badge" style={{ background: 'rgba(33,150,243,0.12)', color: 'var(--blue)' }}>🔗 {linkedJob.job_number}</span>}
-                  {!isLinked && email.suggested_action === 'create_job' && <span className="email-badge" style={{ background: 'rgba(0,212,160,0.1)', color: 'var(--primary)' }}>→ NEW JOB</span>}
-                  {email.metadata?.attachments?.length > 0 && <span className="email-badge" style={{ background: 'rgba(255,184,0,0.1)', color: 'var(--yellow)' }}>📎 {email.metadata.attachments.length}</span>}
-                  {(email.comments || []).length > 0 && <span className="email-badge" style={{ background: 'rgba(33,150,243,0.1)', color: 'var(--blue)' }}>💬 {email.comments.length}</span>}
-                </div>
+                <div style={{ fontSize: 10, color: 'var(--text3)', flexShrink: 0, marginLeft: 8 }}>{formatEmailDate(email)}</div>
               </div>
-
-              {/* Meta — right side */}
-              <div className="email-meta">
-                <div className="email-date">{formatEmailDate(email)}</div>
-                {sla && sla.status !== 'ok' && sla.status !== 'resolved' && (
-                  <span className="email-badge" style={{ background: sla.status === 'breached' ? 'rgba(255,59,92,0.1)' : 'rgba(255,184,0,0.1)', color: sla.color }}>⏱</span>
-                )}
+              {/* Secondary line — the other view */}
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 3 }}>
+                {sortMode === 'address'
+                  ? (email.from_name || email.from_address || '')
+                  : (email.metadata?.extracted_data?.address ? '📍 ' + email.metadata.extracted_data.address : '')
+                }
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email.subject}</div>
+              <div style={{ fontSize: 11, color: 'var(--text2)', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{email.summary}</div>
+              <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: catStyle.bg, color: catStyle.color }}>{cat.toUpperCase()}</span>
+                {email.priority === 'urgent' && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(255,59,92,0.12)', color: '#FF3B5C' }}>URGENT</span>}
+                {isLinked && linkedJob && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(33,150,243,0.12)', color: 'var(--blue)' }}>🔗 {linkedJob.job_number}</span>}
+                {!isLinked && email.suggested_action === 'create_job' && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(0,212,160,0.1)', color: 'var(--primary)', border: '1px solid rgba(0,212,160,0.2)' }}>→ NEW JOB</span>}
+                {email.metadata?.attachments?.length > 0 && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(255,184,0,0.1)', color: 'var(--yellow)' }}>📎 {email.metadata.attachments.length}</span>}
+                {emailConfig.email_assignment && email.assigned_to && (() => {
+                  const assignee = teamMembers.find(m => m.id === email.assigned_to)
+                  return assignee ? <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(139,92,246,0.1)', color: 'var(--purple)' }}>👤 {assignee.full_name?.split(' ')[0]}</span> : null
+                })()}
+                {emailConfig.email_comments && (email.comments || []).length > 0 && <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: 'rgba(33,150,243,0.1)', color: 'var(--blue)' }}>💬 {email.comments.length}</span>}
+                {(() => { const sla = getSlaStatus(email); return sla && sla.status !== 'ok' && sla.status !== 'resolved' ? <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: sla.status === 'breached' ? 'rgba(255,59,92,0.1)' : 'rgba(255,184,0,0.1)', color: sla.color }}>⏱ {sla.label}</span> : null })()}
               </div>
             </div>
           )
@@ -978,63 +1015,64 @@ Only return valid JSON.`, 256, 'haiku'
 
         {/* Pagination */}
         {totalEmails > PAGE_SIZE && (
-          <div className="inbox-pagination">
-            <button onClick={() => loadEmails(emailPage - 1)} disabled={emailPage === 0}>← Prev</button>
-            <span>{emailPage * PAGE_SIZE + 1}–{Math.min((emailPage + 1) * PAGE_SIZE, totalEmails)} of {totalEmails.toLocaleString()}</span>
-            <button onClick={() => loadEmails(emailPage + 1)} disabled={(emailPage + 1) * PAGE_SIZE >= totalEmails}>Next →</button>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: 12, padding: '16px 0'
+          }}>
+            <button onClick={() => loadEmails(emailPage - 1)} disabled={emailPage === 0} style={{
+              padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700,
+              background: emailPage === 0 ? 'var(--card)' : 'var(--card2)',
+              border: '1px solid var(--border)', color: emailPage === 0 ? 'var(--text3)' : 'var(--text2)',
+              cursor: emailPage === 0 ? 'default' : 'pointer', fontFamily: 'DM Sans'
+            }}>← Prev</button>
+            <span style={{ fontSize: 12, color: 'var(--text3)' }}>
+              {emailPage * PAGE_SIZE + 1}–{Math.min((emailPage + 1) * PAGE_SIZE, totalEmails)} of {totalEmails}
+            </span>
+            <button onClick={() => loadEmails(emailPage + 1)} disabled={(emailPage + 1) * PAGE_SIZE >= totalEmails} style={{
+              padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700,
+              background: (emailPage + 1) * PAGE_SIZE >= totalEmails ? 'var(--card)' : 'var(--card2)',
+              border: '1px solid var(--border)',
+              color: (emailPage + 1) * PAGE_SIZE >= totalEmails ? 'var(--text3)' : 'var(--text2)',
+              cursor: (emailPage + 1) * PAGE_SIZE >= totalEmails ? 'default' : 'pointer', fontFamily: 'DM Sans'
+            }}>Next →</button>
           </div>
         )}
       </div>
 
-      {/* Email Detail Modal — email-first, AI on demand */}
+      {/* Email Detail Modal */}
       {showDetail && (
         <Modal title={null} onClose={() => setShowDetail(null)}>
-          {/* Email header — like a real email client */}
-          <div className="email-detail-header">
-            <div className="email-detail-subject">{showDetail.subject}</div>
-            <div className="email-detail-meta">
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{showDetail.from_name || showDetail.from_address}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>{formatEmailDate(showDetail)}</div>
-              {(showDetail.categories || []).map(c => {
-                const s = CAT_COLORS[c] || CAT_COLORS.client
-                return <span key={c} className="email-badge" style={{ background: s.bg, color: s.color }}>{c.toUpperCase()}</span>
-              })}
-            </div>
-          </div>
-
-          {/* Toolbar — assignment, SLA, actions */}
-          <div className="email-detail-toolbar">
-            {emailConfig.email_assignment && (
-              <select value={showDetail.assigned_to || ''} onChange={e => assignEmail(showDetail.id, e.target.value || null)} className="toolbar-btn">
-                <option value="">👤 Assign</option>
-                {teamMembers.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
-              </select>
-            )}
-            {!showDetail.metadata?.linked_job_id && (
-              <select className="toolbar-btn" onChange={e => { if (e.target.value) linkEmailToJob(showDetail.id, e.target.value) }}>
-                <option value="">🔗 Link to job</option>
-                {jobs.map(j => <option key={j.id} value={j.id}>{j.job_number} — {j.name}</option>)}
-              </select>
-            )}
-            {!showDetail.metadata?.linked_job_id && (
-              <button className="toolbar-btn" onClick={() => startCreateJobFromEmail(showDetail)}>+ New Job</button>
-            )}
-            {(() => { const sla = getSlaStatus(showDetail); return sla && sla.status !== 'ok' ? (
-              <div className="toolbar-btn" style={{ color: sla.color, borderColor: sla.color + '40' }}>⏱ {sla.label}</div>
-            ) : null })()}
-          </div>
-
-          {/* Linked job banner */}
-          {showDetail.metadata?.linked_job_id && (() => {
-            const lj = jobs.find(j => j.id === showDetail.metadata.linked_job_id)
-            return lj ? (
-              <div style={{ background: 'rgba(33,150,243,0.06)', border: '1px solid rgba(33,150,243,0.15)', borderRadius: 12, padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span>🔗</span>
-                <div style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{lj.job_number} — {lj.name}</div>
-                <button onClick={() => unlinkEmail(showDetail.id)} style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'DM Sans' }}>Unlink</button>
+          {/* Sort mode banner */}
+          {showDetail._openedFrom === 'suggestions' && !showDetail.metadata?.linked_job_id && (
+            <div style={{
+              background: 'rgba(255,184,0,0.08)', border: '1px solid rgba(255,184,0,0.2)',
+              borderRadius: 12, padding: '12px 14px', marginBottom: 14,
+              display: 'flex', alignItems: 'center', gap: 10
+            }}>
+              <span style={{ fontSize: 20 }}>📂</span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--yellow)' }}>Sort this email</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)' }}>Link it to an existing job or create a new one</div>
               </div>
-            ) : null
-          })()}
+            </div>
+          )}
+
+          {/* Header */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+                {showDetail.from_name || showDetail.from_address}
+              </div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {(showDetail.categories || []).map(c => {
+                  const s = CAT_COLORS[c] || CAT_COLORS.client
+                  return <span key={c} style={{ padding: '3px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700, background: s.bg, color: s.color }}>{c.toUpperCase()}</span>
+                })}
+                {showDetail.priority === 'urgent' && <span style={{ padding: '3px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700, background: 'rgba(255,59,92,0.12)', color: '#FF3B5C' }}>URGENT</span>}
+              </div>
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.3 }}>{showDetail.subject}</div>
+          </div>
 
           {/* Linked status */}
           {showDetail.metadata?.linked_job_id && (() => {
@@ -1055,79 +1093,123 @@ Only return valid JSON.`, 256, 'haiku'
             ) : null
           })()}
 
-          {/* EMAIL BODY — the actual email, shown first */}
-          <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.8, whiteSpace: 'pre-wrap', marginBottom: 14, maxHeight: 400, overflow: 'auto', padding: 16, background: 'var(--bg2)', borderRadius: 12 }}>
-            {showDetail.body || showDetail.raw_text || 'No email body available'}
+          {/* AI Summary */}
+          <div style={{ background: 'rgba(0,212,160,0.04)', border: '1px solid rgba(0,212,160,0.12)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <span style={{ fontSize: 14 }}>🤖</span>
+              <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--primary)', letterSpacing: 0.5 }}>AI SUMMARY</span>
+              {showDetail._analyzing && <div className="spinner" style={{ width: 12, height: 12, borderWidth: 2, marginLeft: 4 }} />}
+            </div>
+            <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.7 }}>
+              {showDetail.summary}
+              {showDetail._analyzing && <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 8 }}>Running deep analysis...</div>}
+            </div>
           </div>
 
-          {/* Attachments — right after email body */}
-          {showDetail.metadata?.attachments?.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-              {showDetail.metadata.attachments.map((att, i) => (
-                <div key={i} onClick={() => downloadAttachment(showDetail, att)} style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  background: 'var(--bg2)', border: '1px solid var(--border)',
-                  borderRadius: 10, padding: '8px 12px', cursor: 'pointer', fontSize: 12
-                }}>
-                  <span>{att.mimeType?.includes('image') ? '🖼️' : att.mimeType?.includes('pdf') ? '📄' : '📎'}</span>
-                  <span style={{ fontWeight: 600, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</span>
-                </div>
-              ))}
+          {/* AI Job Suggestion */}
+          {!showDetail.metadata?.linked_job_id && !showDetail._suggestion && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', marginBottom: 14, background: 'var(--bg2)', borderRadius: 12 }}>
+              <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
+              <span style={{ color: 'var(--text3)', fontSize: 13 }}>Finding matching job...</span>
             </div>
           )}
 
-          {/* AI — on demand button */}
-          {!showDetail._aiLoaded && (
-            <button onClick={async () => {
-              setShowDetail(prev => ({ ...prev, _analyzing: true }))
-              const fullText = `From: ${showDetail.from_name || showDetail.from_address}\nSubject: ${showDetail.subject}\n\n${(showDetail.body || '').slice(0, 2000)}`
-              const result = await analyzeEmailFull(fullText)
-              if (result) {
-                await supabase.from('inbox_emails').update({
-                  summary: result.summary || '', draft_reply: result.draft_reply || '',
-                  metadata: { ...showDetail.metadata, needs_full_analysis: false, extracted_data: result.extracted_data || {} }
-                }).eq('id', showDetail.id)
-                setShowDetail(prev => prev?.id === showDetail.id ? { ...prev, summary: result.summary, draft_reply: result.draft_reply, metadata: { ...prev.metadata, extracted_data: result.extracted_data }, _aiLoaded: true, _analyzing: false } : prev)
-              } else {
-                setShowDetail(prev => ({ ...prev, _analyzing: false }))
-              }
-            }} disabled={showDetail._analyzing} style={{
-              width: '100%', padding: 14, borderRadius: 12, marginBottom: 14,
-              background: showDetail._analyzing ? 'var(--card2)' : 'linear-gradient(135deg, rgba(0,212,160,0.08), rgba(0,153,255,0.08))',
-              border: '1px solid rgba(0,212,160,0.2)', cursor: 'pointer',
-              fontSize: 13, fontWeight: 700, color: showDetail._analyzing ? 'var(--text3)' : 'var(--primary)',
-              fontFamily: 'DM Sans', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
-            }}>
-              {showDetail._analyzing ? <><div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Analyzing...</> : '🤖 AI Summary & Draft Reply'}
-            </button>
-          )}
-
-          {/* AI Results — only shown after user clicks the button */}
-          {showDetail._aiLoaded && showDetail.summary && (
-            <div className="ai-section" style={{ marginBottom: 14 }}>
-              <div className="ai-section-header">
-                <span>🤖</span>
-                <span className="ai-label">AI SUMMARY</span>
-              </div>
-              <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.7 }}>{showDetail.summary}</div>
-            </div>
-          )}
-
-          {/* AI Job Suggestion — only after AI is loaded */}
-          {showDetail._aiLoaded && showDetail._suggestion?.job_id && !showDetail.metadata?.linked_job_id && (() => {
+          {showDetail._suggestion && showDetail._suggestion.job_id && !showDetail.metadata?.linked_job_id && (() => {
             const suggestedJob = jobs.find(j => j.id === showDetail._suggestion.job_id)
             return suggestedJob ? (
-              <div style={{ background: 'rgba(33,150,243,0.06)', border: '1px solid rgba(33,150,243,0.2)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
-                <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--blue)', marginBottom: 6 }}>🤖 SUGGESTED JOB</div>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>{suggestedJob.name}</div>
-                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{suggestedJob.job_number} · {suggestedJob.clients?.name}</div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                  <button onClick={() => linkEmailToJob(showDetail.id, suggestedJob.id)} className="btn btn-primary" style={{ flex: 1, padding: 10, fontSize: 12 }}>✓ Link</button>
-                  <button onClick={() => setShowDetail(prev => ({ ...prev, _suggestion: null }))} className="btn btn-secondary" style={{ padding: '10px 14px', fontSize: 12 }}>✕</button>
+              <div style={{ background: 'rgba(33,150,243,0.06)', border: '1px solid rgba(33,150,243,0.2)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                  <span style={{ fontSize: 14 }}>🤖</span>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--blue)', letterSpacing: 0.5 }}>AI SUGGESTS LINKING TO</span>
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>{suggestedJob.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 4 }}>{suggestedJob.job_number} · {suggestedJob.clients?.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12, lineHeight: 1.5 }}>
+                  Confidence: <strong>{showDetail._suggestion.confidence}</strong> — {showDetail._suggestion.reason}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => linkEmailToJob(showDetail.id, suggestedJob.id)} className="btn btn-primary" style={{ flex: 1, padding: 12, fontSize: 13 }}>
+                    ✓ Confirm Link
+                  </button>
+                  <button onClick={() => { showDetail._suggestion = null; setShowDetail({ ...showDetail }) }} className="btn btn-secondary" style={{ padding: '12px 16px', fontSize: 13 }}>
+                    ✕ Wrong
+                  </button>
                 </div>
               </div>
             ) : null
           })()}
+
+          {/* Manual link */}
+          {!showDetail.metadata?.linked_job_id && (
+            <div style={{ marginBottom: 14 }}>
+              <label className="form-label">LINK TO JOB MANUALLY</label>
+              <select className="form-input" onChange={e => { if (e.target.value) linkEmailToJob(showDetail.id, e.target.value) }}>
+                <option value="">Select job...</option>
+                {jobs.map(j => <option key={j.id} value={j.id}>{j.job_number} — {j.name} ({j.clients?.name})</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Attachments */}
+          {showDetail.metadata?.attachments?.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, marginBottom: 8 }}>
+                ATTACHMENTS ({showDetail.metadata.attachments.length})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {showDetail.metadata.attachments.map((att, i) => (
+                  <div key={i} onClick={() => downloadAttachment(showDetail, att)} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    background: 'var(--bg2)', border: '1px solid var(--border)',
+                    borderRadius: 12, padding: '10px 14px', cursor: 'pointer'
+                  }}>
+                    <span style={{ fontSize: 20 }}>
+                      {att.mimeType?.includes('image') ? '🖼️' :
+                       att.mimeType?.includes('pdf') ? '📄' :
+                       att.mimeType?.includes('spreadsheet') || att.mimeType?.includes('excel') ? '📊' :
+                       att.mimeType?.includes('word') || att.mimeType?.includes('document') ? '📝' : '📎'}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</div>
+                      <div style={{ fontSize: 10, color: 'var(--text3)' }}>{att.size ? (att.size / 1024).toFixed(0) + ' KB' : ''}</div>
+                    </div>
+                    <span style={{ fontSize: 11, color: 'var(--primary)', fontWeight: 700 }}>Download</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Front-inspired features bar */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+            {/* Assignment */}
+            {emailConfig.email_assignment && (
+              <select value={showDetail.assigned_to || ''} onChange={e => assignEmail(showDetail.id, e.target.value || null)}
+                style={{
+                  padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                  background: showDetail.assigned_to ? 'rgba(139,92,246,0.1)' : 'var(--bg2)',
+                  border: `1px solid ${showDetail.assigned_to ? 'rgba(139,92,246,0.2)' : 'var(--border)'}`,
+                  color: showDetail.assigned_to ? 'var(--purple)' : 'var(--text3)',
+                  outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer'
+                }}>
+                <option value="">👤 Unassigned</option>
+                {teamMembers.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
+              </select>
+            )}
+
+            {/* SLA */}
+            {(() => {
+              const sla = getSlaStatus(showDetail)
+              return sla ? (
+                <div style={{
+                  padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                  background: sla.status === 'breached' ? 'rgba(255,59,92,0.1)' : sla.status === 'warning' ? 'rgba(255,184,0,0.1)' : sla.status === 'resolved' ? 'rgba(0,212,160,0.1)' : 'var(--bg2)',
+                  color: sla.color || 'var(--text3)',
+                  border: '1px solid var(--border)'
+                }}>⏱ {sla.label}</div>
+              ) : null
+            })()}
+          </div>
 
           {/* Internal Comments */}
           {emailConfig.email_comments && (
@@ -1135,16 +1217,18 @@ Only return valid JSON.`, 256, 'haiku'
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', letterSpacing: 1, marginBottom: 6 }}>
                 INTERNAL COMMENTS ({(showDetail.comments || []).length})
               </div>
-              <div className="comments-section">
+              <div style={{ background: 'var(--bg2)', borderRadius: 12, overflow: 'hidden', marginBottom: 8 }}>
                 {(showDetail.comments || []).length === 0 ? (
-                  <div style={{ padding: 12, textAlign: 'center', fontSize: 11, color: 'var(--text3)' }}>Only your team sees these</div>
+                  <div style={{ padding: 12, textAlign: 'center', fontSize: 11, color: 'var(--text3)' }}>No comments yet — only your team sees these</div>
                 ) : (showDetail.comments || []).map((c, i) => (
-                  <div key={i} className="comment-item">
-                    <div className="comment-header">
-                      <span className="comment-author">{c.user}</span>
-                      <span className="comment-time">{new Date(c.time).toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' })}</span>
+                  <div key={i} style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--purple)' }}>{c.user}</span>
+                      <span style={{ fontSize: 9, color: 'var(--text3)' }}>
+                        {new Date(c.time).toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
                     </div>
-                    <div className="comment-text">{c.text}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>{c.text}</div>
                   </div>
                 ))}
               </div>
