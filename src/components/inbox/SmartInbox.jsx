@@ -938,8 +938,16 @@ Only return valid JSON.`, 256, 'haiku'
             ) : null
           })()}
 
-          {/* THE EMAIL — shown first, this is the main content */}
-          <div className="email-full-body">{showDetail.body || showDetail.raw_text || 'No content'}</div>
+          {/* THE EMAIL — shown first, clean readable version */}
+          <div className="email-full-body">
+            {(showDetail.body || showDetail.raw_text || 'No content')
+              .replace(/https?:\/\/[^\s)\]>]+/g, '')
+              .replace(/\([\s]*\)/g, '')
+              .replace(/\[[\s]*\]/g, '')
+              .replace(/\n{3,}/g, '\n\n')
+              .trim()
+              || 'No readable content'}
+          </div>
 
           {/* Attachments */}
           {showDetail.metadata?.attachments?.length > 0 && (
