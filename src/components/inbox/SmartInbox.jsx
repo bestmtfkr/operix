@@ -917,15 +917,82 @@ Only return valid JSON.`, 256, 'haiku'
   }
 
   const [opening, setOpening] = useState(false)
+  const [replyOpen, setReplyOpen] = useState(false)
+  const [replyText, setReplyText] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+
+  // Explicit, user-initiated AI summary — no auto-run on open
+  async function runAISummary() {
+    if (!showDetail || aiLoading) return
+    setAiLoading(true)
+    const body = (showDetail.body || showDetail.raw_text || showDetail.summary || '').slice(0, 2000)
+    const fullText = `From: ${showDetail.from_name || showDetail.from_address}\nSubject: ${showDetail.subject}\n\n${body}`
+    try {
+      const result = await analyzeEmailFull(fullText)
+      if (result) {
+        await supabase.from('inbox_emails').update({
+          summary: result.summary || showDetail.summary,
+          draft_reply: result.draft_reply || showDetail.draft_reply || '',
+          metadata: {
+            ...showDetail.metadata,
+            needs_full_analysis: false,
+            extracted_data: result.extracted_data || {}
+          }
+        }).eq('id', showDetail.id)
+        setShowDetail(prev => prev?.id === showDetail.id ? {
+          ...prev,
+          summary: result.summary || prev.summary,
+          draft_reply: result.draft_reply || prev.draft_reply || '',
+          _aiLoaded: true
+        } : prev)
+      } else {
+        showToast('AI summary failed')
+      }
+    } catch (err) {
+      showToast('AI error: ' + err.message)
+    }
+    setAiLoading(false)
+  }
+
+  // Explicit "draft a reply with AI" — writes into the open reply textarea
+  async function runAIDraftReply() {
+    if (!showDetail || aiLoading) return
+    setAiLoading(true)
+    const body = (showDetail.body || showDetail.raw_text || '').slice(0, 2000)
+    const fullText = `From: ${showDetail.from_name || showDetail.from_address}\nSubject: ${showDetail.subject}\n\n${body}`
+    try {
+      const result = await analyzeEmailFull(fullText)
+      if (result?.draft_reply) {
+        setReplyText(result.draft_reply)
+        setReplyOpen(true)
+        await supabase.from('inbox_emails').update({
+          draft_reply: result.draft_reply,
+          summary: result.summary || showDetail.summary,
+          metadata: {
+            ...showDetail.metadata,
+            needs_full_analysis: false,
+            extracted_data: result.extracted_data || {}
+          }
+        }).eq('id', showDetail.id)
+      } else {
+        showToast('AI draft failed')
+      }
+    } catch (err) {
+      showToast('AI error: ' + err.message)
+    }
+    setAiLoading(false)
+  }
 
   async function openEmail(email) {
     // Allow switching between emails — only block if it's the same one already open
     if (showDetail?.id === email.id) return
     setOpening(true)
     setHeaderExpanded(false)
+    setReplyOpen(false) // Collapse composer when switching emails
 
     // Open detail immediately with list-row data — body fetches in background
-    setShowDetail({ ...email, _openedFrom: selectedView, _analyzing: email.metadata?.needs_full_analysis, _bodyLoading: true })
+    // AI is opt-in: no auto-analyze, no spinner, no draft_reply prefill
+    setShowDetail({ ...email, _openedFrom: selectedView, _bodyLoading: true })
 
     // Lazy-fetch the heavy fields (body, html_body, raw_text, draft_reply) only now
     supabase.from('inbox_emails')
@@ -947,46 +1014,7 @@ Only return valid JSON.`, 256, 'haiku'
       email.status = 'read'
     }
 
-    // Run FULL analysis with Sonnet if not done yet (on-demand, only when user opens)
-    if (email.metadata?.needs_full_analysis) {
-      // Wait a tick for body to load — if still not there use snippet/summary
-      await new Promise(r => setTimeout(r, 500))
-      const body = (email.body || email.raw_text || email.summary || '').slice(0, 2000)
-      const fullText = `From: ${email.from_name || email.from_address}\nSubject: ${email.subject}\n\n${body}`
-      Promise.race([
-        analyzeEmailFull(fullText),
-        new Promise(r => setTimeout(() => r(null), 15000)) // 15s timeout
-      ]).then(async (fullResult) => {
-        if (fullResult) {
-          // Update in database
-          await supabase.from('inbox_emails').update({
-            summary: fullResult.summary || email.summary,
-            draft_reply: fullResult.draft_reply || '',
-            metadata: {
-              ...email.metadata,
-              needs_full_analysis: false,
-              extracted_data: fullResult.extracted_data || {}
-            }
-          }).eq('id', email.id)
-
-          // Update the modal
-          const updated = {
-            ...email,
-            summary: fullResult.summary || email.summary,
-            draft_reply: fullResult.draft_reply || '',
-            metadata: { ...email.metadata, needs_full_analysis: false, extracted_data: fullResult.extracted_data || {} },
-            _openedFrom: selectedView,
-            _analyzing: false
-          }
-          setShowDetail(prev => prev?.id === email.id ? updated : prev)
-        } else {
-          // Timed out or failed — stop spinner
-          setShowDetail(prev => prev?.id === email.id ? { ...prev, _analyzing: false } : prev)
-        }
-      })
-    }
-
-    // Suggest job match in background
+    // Suggest job match in background (cheap, not AI-generated content)
     if (!email.metadata?.linked_job_id && !email._suggestion) {
       suggestJobMatch(email).then(suggestion => {
         if (suggestion) {
@@ -1383,9 +1411,19 @@ Only return valid JSON.`, 256, 'haiku'
 
   const emailDetailContent = showDetail ? (
     <>
-      {/* Subject */}
-      <div style={{ fontSize: 20, fontWeight: 800, lineHeight: 1.3, marginBottom: 16, wordBreak: 'break-word' }}>
-        {showDetail.subject || '(no subject)'}
+      {/* Subject + inline Summarize button */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
+        <div style={{ flex: 1, fontSize: 20, fontWeight: 800, lineHeight: 1.3, wordBreak: 'break-word' }}>
+          {showDetail.subject || '(no subject)'}
+        </div>
+        <button
+          onClick={runAISummary}
+          disabled={aiLoading}
+          className="ai-pill-btn"
+          title="Summarize this email with AI"
+        >
+          {aiLoading ? '⏳' : '✨'} Summarize
+        </button>
       </div>
 
       {/* Gmail-style header */}
@@ -1519,27 +1557,10 @@ Only return valid JSON.`, 256, 'haiku'
         </div>
       )}
 
-      {/* AI — ON DEMAND */}
-      {!showDetail._aiLoaded && (
-        <button onClick={async () => {
-          setShowDetail(prev => ({ ...prev, _analyzing: true }))
-          const body = (showDetail.body || showDetail.raw_text || '').slice(0, 2000)
-          const fullText = `From: ${showDetail.from_name || showDetail.from_address}\nSubject: ${showDetail.subject}\n\n${body}`
-          const result = await analyzeEmailFull(fullText)
-          if (result) {
-            await supabase.from('inbox_emails').update({ summary: result.summary || '', draft_reply: result.draft_reply || '', metadata: { ...showDetail.metadata, needs_full_analysis: false, extracted_data: result.extracted_data || {} } }).eq('id', showDetail.id)
-            setShowDetail(prev => prev?.id === showDetail.id ? { ...prev, summary: result.summary, draft_reply: result.draft_reply, _aiLoaded: true, _analyzing: false } : prev)
-          } else {
-            setShowDetail(prev => ({ ...prev, _analyzing: false }))
-          }
-        }} disabled={showDetail._analyzing} className="ai-analyze-btn">
-          {showDetail._analyzing ? <><div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Analyzing...</> : '🤖 AI Summary & Draft Reply'}
-        </button>
-      )}
-
+      {/* AI summary result — only shows after user clicks Summarize */}
       {showDetail._aiLoaded && showDetail.summary && (
         <div className="ai-result-box" style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--primary)', letterSpacing: 0.5, marginBottom: 6 }}>🤖 AI SUMMARY</div>
+          <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--primary)', letterSpacing: 0.5, marginBottom: 6 }}>✨ AI SUMMARY</div>
           <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.7 }}>{showDetail.summary}</div>
         </div>
       )}
@@ -1566,40 +1587,93 @@ Only return valid JSON.`, 256, 'haiku'
         </div>
       )}
 
-      {/* Reply */}
-      <div className="reply-box">
-        <div className="reply-header">
-          <span className="reply-label">Reply</span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {emailConfig.email_templates && replyTemplates.length > 0 && (
-              <select onChange={e => { if (!e.target.value) return; const tpl = replyTemplates.find(t => t.id === e.target.value); if (tpl) { const el = document.getElementById('reply-area'); if (el) el.value = applyTemplate(tpl, showDetail) } e.target.value = '' }} style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer' }}>
-                <option value="">📝 Templates</option>
-                {replyTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            )}
-            <button onClick={() => { const el = document.getElementById('reply-area'); navigator.clipboard.writeText(el?.value || showDetail.draft_reply || '').then(() => showToast('Copied')) }} style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', fontFamily: 'DM Sans' }}>📋 Copy</button>
+      {/* Reply — collapsed by default, expands on click */}
+      {!replyOpen ? (
+        <div
+          className="reply-collapsed"
+          onClick={() => {
+            setReplyText(showDetail.draft_reply || '')
+            setReplyOpen(true)
+          }}
+        >
+          <span className="reply-collapsed-icon">↩</span>
+          <span className="reply-collapsed-label">Click to reply...</span>
+          <button
+            className="reply-collapsed-ai"
+            onClick={e => { e.stopPropagation(); runAIDraftReply() }}
+            disabled={aiLoading}
+            title="Draft with AI"
+          >
+            {aiLoading ? '⏳' : '✨'} Draft with AI
+          </button>
+        </div>
+      ) : (
+        <div className="reply-box-expanded">
+          <div className="reply-expanded-header">
+            <span className="reply-expanded-label">Reply</span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {emailConfig.email_templates && replyTemplates.length > 0 && (
+                <select
+                  onChange={e => {
+                    if (!e.target.value) return
+                    const tpl = replyTemplates.find(t => t.id === e.target.value)
+                    if (tpl) setReplyText(applyTemplate(tpl, showDetail))
+                    e.target.value = ''
+                  }}
+                  style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', outline: 'none', fontFamily: 'DM Sans', cursor: 'pointer' }}
+                >
+                  <option value="">📝 Templates</option>
+                  {replyTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              )}
+              <button
+                onClick={runAIDraftReply}
+                disabled={aiLoading}
+                className="reply-ai-btn"
+                title="Draft with AI"
+              >
+                {aiLoading ? '⏳' : '✨'} Draft with AI
+              </button>
+            </div>
+          </div>
+          <textarea
+            className="reply-area"
+            value={replyText}
+            onChange={e => setReplyText(e.target.value)}
+            placeholder="Write a reply..."
+            autoFocus
+          />
+          <div className="reply-expanded-actions">
+            <button
+              className="reply-send-btn"
+              onClick={() => openReplyComposer(showDetail, replyText)}
+              disabled={!gmailConnected || !replyText.trim()}
+            >
+              Send
+            </button>
+            <button
+              className="reply-cancel-btn"
+              onClick={() => { setReplyOpen(false); setReplyText('') }}
+            >
+              Cancel
+            </button>
+            {!gmailConnected && <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 'auto' }}>Connect Gmail to send</span>}
           </div>
         </div>
-        <textarea id="reply-area" className="reply-area" defaultValue={showDetail.draft_reply || ''} placeholder="Write a reply..." />
-        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-          <button
-            onClick={() => {
-              const el = document.getElementById('reply-area')
-              const text = el?.value || ''
-              openReplyComposer(showDetail, text)
-            }}
-            disabled={!gmailConnected}
-            style={{ flex: 1, padding: '10px 14px', borderRadius: 8, border: 'none', background: gmailConnected ? 'var(--primary)' : 'var(--card2)', color: gmailConnected ? '#000' : 'var(--text3)', fontSize: 13, fontWeight: 700, cursor: gmailConnected ? 'pointer' : 'not-allowed', fontFamily: 'DM Sans' }}
-          >📤 Send Reply</button>
-        </div>
-        {!gmailConnected && <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>Connect Gmail to send replies directly</div>}
-      </div>
+      )}
 
-      {/* Actions */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <button className="btn btn-danger btn-full" style={{ padding: 12 }} onClick={() => deleteEmail(showDetail.id)}>Delete</button>
-        {!isDesktop && <button className="btn btn-secondary btn-full" style={{ padding: 12 }} onClick={() => setShowDetail(null)}>Close</button>}
-      </div>
+      {/* Mobile close — desktop has no close since the pane is always visible */}
+      {!isDesktop && (
+        <div style={{ marginTop: 12 }}>
+          <button
+            className="btn btn-secondary btn-full"
+            style={{ padding: 12 }}
+            onClick={() => setShowDetail(null)}
+          >
+            Close
+          </button>
+        </div>
+      )}
     </>
   ) : null
 
@@ -1826,6 +1900,7 @@ Only return valid JSON.`, 256, 'haiku'
                   <button title="Assign" onClick={e => { e.stopPropagation(); showToast('Assign coming soon') }}>👤</button>
                   <button title="Snooze" onClick={e => { e.stopPropagation(); showToast('Snooze coming soon') }}>⏰</button>
                   <button title="Archive" onClick={e => { e.stopPropagation(); archiveEmail(email.id) }}>✓</button>
+                  <button title="Move to trash" className="danger" onClick={e => { e.stopPropagation(); moveEmailToFolder(email.id, 'trash') }}>🗑</button>
                 </div>
               </div>
             </div>
