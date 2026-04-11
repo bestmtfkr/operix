@@ -984,9 +984,18 @@ Only return valid JSON.`, 256, 'haiku'
     return (m ? m[1] : addr).trim()
   }
 
+  // Pick the mailbox that should be the default "From" for a new compose.
+  // Priority: currently-selected single mailbox → primary → first available.
+  function defaultComposeMailboxId() {
+    if (!isUnifiedView && selectedAccountId) return selectedAccountId
+    const primary = mailboxes.find(m => m.is_primary)
+    return primary?.id || mailboxes[0]?.id || null
+  }
+
   function openCompose() {
-    if (!gmailConnected) { showToast('Connect Gmail first'); return }
+    if (mailboxes.length === 0) { showToast('Connect a Gmail account first'); return }
     setComposer({
+      mailboxId: defaultComposeMailboxId(),
       to: '', cc: '', bcc: '', subject: '', body: '',
       attachments: [], replyToId: null, threadId: null,
       inReplyTo: null, references: null, showCcBcc: false
@@ -994,7 +1003,7 @@ Only return valid JSON.`, 256, 'haiku'
   }
 
   function openReplyComposer(email, prefillBody = '') {
-    if (!gmailConnected) { showToast('Connect Gmail first'); return }
+    if (mailboxes.length === 0) { showToast('Connect a Gmail account first'); return }
     const fromAddr = extractEmail(email.from_address)
     const subj = email.subject || ''
     const replySubject = /^re:/i.test(subj) ? subj : `Re: ${subj}`
@@ -1010,6 +1019,10 @@ Only return valid JSON.`, 256, 'haiku'
       : `\n\n${email.from_name || fromAddr} <${fromAddr}> wrote:\n`
 
     setComposer({
+      // Reply from the account that received the email — falls back to default
+      mailboxId: email.mailbox_id || defaultComposeMailboxId(),
+      // Remember the original mailbox so we can warn if the user switches
+      originalMailboxId: email.mailbox_id || null,
       to: fromAddr,
       cc: '',
       bcc: '',
@@ -1838,10 +1851,49 @@ Only return valid JSON.`, 256, 'haiku'
       )}
 
       {/* COMPOSER MODAL — real Gmail compose */}
-      {composer && (
+      {composer && (() => {
+        const currentMb = mailboxes.find(m => m.id === composer.mailboxId)
+        const originalMb = composer.originalMailboxId ? mailboxes.find(m => m.id === composer.originalMailboxId) : null
+        const switchedFromOriginal = !!(composer.replyToId && composer.originalMailboxId && composer.mailboxId !== composer.originalMailboxId)
+        return (
         <Modal title={composer.replyToId ? 'Reply' : 'New Message'} onClose={() => !sending && setComposer(null)}>
-          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>From:</span><span style={{ color: 'var(--text2)', fontWeight: 600 }}>{gmailEmail || 'Not connected'}</span>
+          {/* From picker */}
+          <div className="form-field">
+            <label className="form-label">From</label>
+            {mailboxes.length === 1 ? (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '10px 12px', background: 'var(--bg2)', borderRadius: 8,
+                border: '1px solid var(--border)', fontSize: 13, color: 'var(--text2)'
+              }}>
+                <span style={{ width: 10, height: 10, borderRadius: '50%', background: currentMb?.color || '#00D4A0' }} />
+                <span>{currentMb?.email_address || 'Not connected'}</span>
+              </div>
+            ) : (
+              <select
+                className="form-input"
+                value={composer.mailboxId || ''}
+                onChange={e => {
+                  const newId = e.target.value
+                  if (composer.replyToId && composer.originalMailboxId && newId !== composer.originalMailboxId) {
+                    const ok = confirm('Replies usually send from the account that received the email. Switch to a different account anyway?')
+                    if (!ok) return
+                  }
+                  setComposer(c => ({ ...c, mailboxId: newId }))
+                }}
+              >
+                {mailboxes.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.email_address}{m.is_primary ? ' (primary)' : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+            {switchedFromOriginal && originalMb && (
+              <div style={{ fontSize: 10, color: 'var(--yellow)', marginTop: 4 }}>
+                ⚠ Original email came in on <strong>{originalMb.email_address}</strong>
+              </div>
+            )}
           </div>
 
           {/* To */}
@@ -1959,7 +2011,8 @@ Only return valid JSON.`, 256, 'haiku'
             >Cancel</button>
           </div>
         </Modal>
-      )}
+        )
+      })()}
     </div>
   )
 }
