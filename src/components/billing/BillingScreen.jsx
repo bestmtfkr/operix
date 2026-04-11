@@ -30,8 +30,10 @@ export default function BillingScreen({ onNavigate }) {
 
   const [form, setForm] = useState({
     client_id: '', job_id: '', status: 'draft', issue_date: '',
-    due_date: '', notes: '', internal_notes: '', billing_email: ''
+    due_date: '', notes: '', internal_notes: '', billing_email: '',
+    tax_province: '' // '' = use company default
   })
+  const [companyProvince, setCompanyProvince] = useState('')
   const [companySettings, setCompanySettings] = useState(null)
   const [qboConnected, setQboConnected] = useState(false)
   const [qboTokens, setQboTokens] = useState(null)
@@ -60,7 +62,7 @@ export default function BillingScreen({ onNavigate }) {
   }
 
   async function loadJobs() {
-    const { data } = await supabase.from('jobs').select('id, name, job_number, client_id, billing_email')
+    const { data } = await supabase.from('jobs').select('id, name, job_number, client_id, billing_email, site_province_state')
       .eq('company_id', companyId).is('archived_at', null).order('created_at', { ascending: false })
     setJobs(data || [])
   }
@@ -105,9 +107,25 @@ export default function BillingScreen({ onNavigate }) {
     }
 
     setCompanySettings(settings)
+    setCompanyProvince((data?.province_state || '').toUpperCase().slice(0, 2))
     setQboConnected(!!data?.qbo_tokens?.access_token)
     setQboTokens(data?.qbo_tokens || null)
     setQboSettings(data?.qbo_settings || {})
+  }
+
+  // Resolve the tax preset to actually use for this invoice:
+  // explicit form.tax_province > job's site province > company province
+  function resolveTaxPreset() {
+    const job = jobs.find(j => j.id === form.job_id)
+    const code = (form.tax_province ||
+      (job?.site_province_state || '').toUpperCase().slice(0, 2) ||
+      companyProvince)
+    return TAX_PRESETS[code] || {
+      label1: companySettings?.tax_label_1 || null,
+      rate1: companySettings?.tax_rate_1 || 0,
+      label2: companySettings?.tax_label_2 || null,
+      rate2: companySettings?.tax_rate_2 || null
+    }
   }
 
   async function syncAllPayments() {
@@ -203,7 +221,7 @@ export default function BillingScreen({ onNavigate }) {
     setForm({
       client_id: '', job_id: '', status: 'draft',
       issue_date: today, due_date: dueDate, notes: '', internal_notes: '',
-      billing_email: ''
+      billing_email: '', tax_province: ''
     })
     setLines([{ id: 'new-1', line_type: 'service', description: '', quantity: 1, unit: 'each', unit_price: '', taxable: true }])
     setShowModal(true)
@@ -219,7 +237,8 @@ export default function BillingScreen({ onNavigate }) {
       due_date: invoice.due_date || '',
       notes: invoice.notes || '',
       internal_notes: invoice.internal_notes || '',
-      billing_email: invoice.billing_email || ''
+      billing_email: invoice.billing_email || '',
+      tax_province: invoice.tax_province || ''
     })
     await loadLines(invoice.id)
     setShowModal(true)
@@ -251,13 +270,14 @@ export default function BillingScreen({ onNavigate }) {
       return s + (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_price) || 0)
     }, 0)
 
-    const rate1 = companySettings?.tax_rate_1 || 0
-    const rate2 = companySettings?.tax_rate_2 || 0
+    const preset = resolveTaxPreset()
+    const rate1 = preset?.rate1 || 0
+    const rate2 = preset?.rate2 || 0
     const tax1 = taxableSubtotal * rate1
     const tax2 = rate2 ? taxableSubtotal * rate2 : 0
     const total = subtotal + tax1 + tax2
 
-    return { subtotal, tax1, tax2, total }
+    return { subtotal, tax1, tax2, total, preset }
   }
 
   async function saveInvoice() {
@@ -266,7 +286,7 @@ export default function BillingScreen({ onNavigate }) {
       showToast('Add at least one line item'); return
     }
 
-    const { subtotal, tax1, tax2, total } = calcTotals()
+    const { subtotal, tax1, tax2, total, preset } = calcTotals()
 
     const payload = {
       client_id: form.client_id,
@@ -277,12 +297,13 @@ export default function BillingScreen({ onNavigate }) {
       notes: form.notes,
       internal_notes: form.internal_notes,
       billing_email: form.billing_email || resolveBillingEmail(form.client_id, form.job_id) || null,
+      tax_province: form.tax_province || null,
       subtotal,
-      tax1_label: companySettings?.tax_label_1 || null,
-      tax1_rate: companySettings?.tax_rate_1 || 0,
+      tax1_label: preset?.label1 || null,
+      tax1_rate: preset?.rate1 || 0,
       tax1_amount: tax1,
-      tax2_label: companySettings?.tax_label_2 || null,
-      tax2_rate: companySettings?.tax_rate_2 || null,
+      tax2_label: preset?.label2 || null,
+      tax2_rate: preset?.rate2 || null,
       tax2_amount: tax2 || 0,
       total,
       amount_due: total - (editing?.amount_paid || 0) - (editing?.deposit_amount || 0),
@@ -620,11 +641,43 @@ export default function BillingScreen({ onNavigate }) {
             </div>
           </div>
 
-          <div className="form-field">
-            <label className="form-label">Status</label>
-            <select className="form-input" value={form.status} onChange={e => updateForm('status', e.target.value)}>
-              {INVOICE_STATUSES.map(s => <option key={s} value={s}>{INVOICE_STATUS_LABELS[s]}</option>)}
-            </select>
+          <div className="form-row">
+            <div className="form-field">
+              <label className="form-label">Status</label>
+              <select className="form-input" value={form.status} onChange={e => updateForm('status', e.target.value)}>
+                {INVOICE_STATUSES.map(s => <option key={s} value={s}>{INVOICE_STATUS_LABELS[s]}</option>)}
+              </select>
+            </div>
+            <div className="form-field">
+              <label className="form-label">
+                Tax region
+                <span style={{ color: 'var(--text3)', fontWeight: 400, marginLeft: 6 }}>
+                  (where the work is performed)
+                </span>
+              </label>
+              <select className="form-input" value={form.tax_province} onChange={e => updateForm('tax_province', e.target.value)}>
+                <option value="">
+                  Auto — {(() => {
+                    const job = jobs.find(j => j.id === form.job_id)
+                    const autoCode = (job?.site_province_state || '').toUpperCase().slice(0, 2) || companyProvince
+                    const p = TAX_PRESETS[autoCode]
+                    return p
+                      ? `${autoCode} (${p.label1} ${(p.rate1 * 100).toFixed(2)}%${p.label2 ? ' + ' + p.label2 + ' ' + (p.rate2 * 100).toFixed(3) + '%' : ''})`
+                      : 'company default'
+                  })()}
+                </option>
+                <option value="ON">Ontario — HST 13%</option>
+                <option value="QC">Quebec — GST 5% + QST 9.975%</option>
+                <option value="BC">BC — GST 5% + PST 7%</option>
+                <option value="AB">Alberta — GST 5%</option>
+                <option value="SK">Saskatchewan — GST 5% + PST 6%</option>
+                <option value="MB">Manitoba — GST 5% + PST 7%</option>
+                <option value="NB">New Brunswick — HST 15%</option>
+                <option value="NS">Nova Scotia — HST 15%</option>
+                <option value="PE">PEI — HST 15%</option>
+                <option value="NL">Newfoundland — HST 15%</option>
+              </select>
+            </div>
           </div>
 
           {/* Billing email — resolves from job > client > contact, but can be overridden here */}
@@ -712,20 +765,23 @@ export default function BillingScreen({ onNavigate }) {
           </div>
 
           {/* Totals */}
+          {(() => {
+            const preset = resolveTaxPreset()
+            return (
           <div className="invoice-totals">
             <div className="total-row">
               <span>Subtotal</span>
               <span>${subtotal.toFixed(2)}</span>
             </div>
-            {companySettings?.tax_label_1 && (
+            {preset?.label1 && (
               <div className="total-row">
-                <span>{companySettings.tax_label_1} ({((companySettings.tax_rate_1 || 0) * 100).toFixed(1)}%)</span>
+                <span>{preset.label1} ({((preset.rate1 || 0) * 100).toFixed(preset.rate1 >= 0.1 ? 1 : 3)}%)</span>
                 <span>${tax1.toFixed(2)}</span>
               </div>
             )}
-            {companySettings?.tax_label_2 && companySettings?.tax_rate_2 && (
+            {preset?.label2 && preset?.rate2 && (
               <div className="total-row">
-                <span>{companySettings.tax_label_2} ({((companySettings.tax_rate_2 || 0) * 100).toFixed(1)}%)</span>
+                <span>{preset.label2} ({((preset.rate2 || 0) * 100).toFixed(3)}%)</span>
                 <span>${tax2.toFixed(2)}</span>
               </div>
             )}
@@ -734,6 +790,8 @@ export default function BillingScreen({ onNavigate }) {
               <span>${total.toFixed(2)}</span>
             </div>
           </div>
+            )
+          })()}
 
           <div className="form-field">
             <label className="form-label">Notes (visible to client)</label>
