@@ -1060,6 +1060,14 @@ Only return valid JSON.`, 256, 'haiku'
   const senderAvColor = { insurance: '#8B5CF6', urgent: '#FF3B5C', supplier: '#2196F3', pm: '#FF6B35', client: '#00D4A0', internal: '#7A8799' }[senderCat] || '#00D4A0'
   const toAddr = showDetail?.metadata?.to || gmailEmail || ''
   const ccAddr = showDetail?.metadata?.cc || ''
+  // Pull display name out of "Name <email>" if possible; otherwise use the local part of the email
+  const toShortLabel = (() => {
+    if (!toAddr) return ''
+    const m = toAddr.match(/^\s*"?([^"<]+?)"?\s*<([^>]+)>/)
+    if (m) return m[1].trim()
+    const emailOnly = toAddr.split(',')[0].trim()
+    return emailOnly.includes('@') ? emailOnly.split('@')[0] : emailOnly
+  })()
   const fullDate = showDetail?.metadata?.date
     ? new Date(showDetail.metadata.date).toLocaleString('en-CA', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : new Date(showDetail?.created_at || Date.now()).toLocaleString('en-CA')
@@ -1072,73 +1080,52 @@ Only return valid JSON.`, 256, 'haiku'
       </div>
 
       {/* Gmail-style header */}
-      <div style={{ display: 'flex', gap: 12, paddingBottom: 14, borderBottom: '1px solid var(--border)', marginBottom: 14 }}>
+      <div className="email-header">
         {/* Avatar */}
-        <div style={{
-          width: 40, height: 40, minWidth: 40, borderRadius: '50%',
-          background: senderAvColor, color: '#fff',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 15, fontWeight: 700, flexShrink: 0
-        }}>{senderInitial}</div>
+        <div className="email-header-avatar" style={{ background: senderAvColor }}>
+          {senderInitial}
+        </div>
 
         {/* Sender + recipients */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Sender line — name + email + date */}
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{senderName}</span>
-            <span style={{ fontSize: 12, color: 'var(--text3)', wordBreak: 'break-all' }}>&lt;{senderEmail}&gt;</span>
-            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>{fullDate}</span>
+        <div className="email-header-body">
+          {/* Sender line — name only + date right */}
+          <div className="email-header-sender">
+            <span className="email-header-name">{senderName}</span>
+            <span className="email-header-date">{fullDate}</span>
           </div>
 
-          {/* To line + expand chevron */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text3)' }}>
-            <span>to {toAddr || '—'}</span>
+          {/* "to ___" line with chevron on the right */}
+          <div className="email-header-to-row">
+            <span className="email-header-to">
+              to <span className="email-header-to-name">{toShortLabel || '—'}</span>
+            </span>
             <button
+              className="email-header-chevron"
               onClick={() => setHeaderExpanded(h => !h)}
-              style={{
-                background: 'none', border: 'none', color: 'var(--text3)',
-                cursor: 'pointer', padding: '2px 4px', fontSize: 10, fontFamily: 'DM Sans',
-                display: 'inline-flex', alignItems: 'center'
-              }}
               title={headerExpanded ? 'Hide details' : 'Show details'}
+              aria-label={headerExpanded ? 'Hide details' : 'Show details'}
             >
               {headerExpanded ? '▲' : '▼'}
             </button>
           </div>
 
-          {/* CC line (shown collapsed if present) */}
-          {!headerExpanded && ccAddr && (
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 1 }}>
-              cc {ccAddr}
-            </div>
-          )}
-
-          {/* Expanded detail panel — Gmail-style key/value grid */}
+          {/* Expanded detail panel — shown only when chevron is clicked */}
           {headerExpanded && (
-            <div style={{
-              marginTop: 8, padding: '10px 12px',
-              background: 'var(--bg2)', border: '1px solid var(--border)',
-              borderRadius: 8, fontSize: 11, color: 'var(--text2)',
-              display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 12px'
-            }}>
-              <span style={{ color: 'var(--text3)' }}>from:</span>
-              <span style={{ wordBreak: 'break-all' }}>
-                <strong style={{ color: 'var(--text)' }}>{senderName}</strong> &lt;{senderEmail}&gt;
+            <div className="email-header-details">
+              <span className="email-header-label">from:</span>
+              <span className="email-header-value">
+                <strong>{senderName}</strong> &lt;{senderEmail}&gt;
               </span>
-              <span style={{ color: 'var(--text3)' }}>to:</span>
-              <span style={{ wordBreak: 'break-all' }}>{toAddr || '—'}</span>
+              <span className="email-header-label">to:</span>
+              <span className="email-header-value">{toAddr || '—'}</span>
               {ccAddr && <>
-                <span style={{ color: 'var(--text3)' }}>cc:</span>
-                <span style={{ wordBreak: 'break-all' }}>{ccAddr}</span>
+                <span className="email-header-label">cc:</span>
+                <span className="email-header-value">{ccAddr}</span>
               </>}
-              <span style={{ color: 'var(--text3)' }}>date:</span>
-              <span>{fullDate}</span>
-              <span style={{ color: 'var(--text3)' }}>subject:</span>
-              <span style={{ wordBreak: 'break-word' }}>{showDetail.subject || '(no subject)'}</span>
-              {showDetail.metadata?.message_id && <>
-                <span style={{ color: 'var(--text3)' }}>msg-id:</span>
-                <span style={{ wordBreak: 'break-all', fontFamily: 'monospace', fontSize: 10 }}>{showDetail.metadata.message_id}</span>
-              </>}
+              <span className="email-header-label">date:</span>
+              <span className="email-header-value">{fullDate}</span>
+              <span className="email-header-label">subject:</span>
+              <span className="email-header-value">{showDetail.subject || '(no subject)'}</span>
             </div>
           )}
 
@@ -1190,11 +1177,18 @@ Only return valid JSON.`, 256, 'haiku'
         </div>
       ) : showDetail.html_body ? (
         <iframe
-          srcDoc={showDetail.html_body}
+          srcDoc={`<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>
+            html,body{margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;font-size:14px;line-height:1.6;color:#222;background:#fff;overflow-x:hidden;word-wrap:break-word;overflow-wrap:anywhere}
+            *{max-width:100%!important;box-sizing:border-box}
+            img,table,video{max-width:100%!important;height:auto!important}
+            table{width:auto!important}
+            pre{white-space:pre-wrap!important;word-break:break-word}
+            a{color:#1a73e8}
+          </style></head><body>${showDetail.html_body}</body></html>`}
           sandbox=""
           style={{
             width: '100%', minHeight: 300, maxHeight: '50vh', border: '1px solid var(--border)',
-            borderRadius: 12, background: '#fff'
+            borderRadius: 12, background: '#fff', display: 'block'
           }}
           onLoad={e => { try { e.target.style.height = Math.min(e.target.contentWindow.document.body.scrollHeight + 20, 600) + 'px' } catch(err){} }}
         />
