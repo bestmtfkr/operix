@@ -319,9 +319,36 @@ export default function SmartInbox() {
       })
       if (newEmails.length === 0) return 0
 
+      // Build a one-shot contact lookup for this batch — only query the
+      // distinct sender addresses we're about to insert. Avoids per-row N+1.
+      const senderAddrsInBatch = Array.from(new Set(
+        newEmails.map(e => normalizeEmail(e.from)).filter(Boolean)
+      ))
+      const contactByEmail = new Map()
+      const clientIdByContact = new Map()
+      if (senderAddrsInBatch.length > 0) {
+        const { data: matchingContacts } = await supabase
+          .from('contacts')
+          .select('id, client_id, email')
+          .eq('company_id', companyId)
+          .is('archived_at', null)
+          .in('email', senderAddrsInBatch)
+        for (const c of matchingContacts || []) {
+          const key = (c.email || '').toLowerCase().trim()
+          if (key && !contactByEmail.has(key)) {
+            contactByEmail.set(key, c.id)
+            clientIdByContact.set(c.id, c.client_id)
+          }
+        }
+      }
+
       let saved = 0
       for (const email of newEmails) {
         const quick = await categorizeEmail(`From: ${email.from}\nSubject: ${email.subject}\n\n${email.body.slice(0, 500)}`)
+
+        // Contact auto-link: does sender match a known contact?
+        const fromAddr = normalizeEmail(email.from)
+        const matchedContactId = contactByEmail.get(fromAddr) || null
 
         // Auto-link if same thread as an already-linked email IN THE SAME MAILBOX
         let autoLinkedJobId = null
@@ -341,6 +368,7 @@ export default function SmartInbox() {
           company_id: companyId,
           mailbox_id: mailboxId,
           folder: folder,
+          contact_id: matchedContactId,
           from_address: email.from,
           from_name: quick?.from_name || email.from.split('<')[0].trim(),
           subject: email.subject,
@@ -362,6 +390,7 @@ export default function SmartInbox() {
             needs_full_analysis: true,
             date: email.date,
             linked_job_id: autoLinkedJobId,
+            linked_client_id: matchedContactId ? clientIdByContact.get(matchedContactId) : null,
             attachments: email.attachments || []
           }
         }).select().single()
