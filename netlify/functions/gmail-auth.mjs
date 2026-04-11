@@ -1,9 +1,13 @@
-// Redirects user to Google OAuth to connect their Gmail
-// Passes company_id as state so callback knows where to store tokens
+// Redirects user to Google OAuth to connect their Gmail.
+// state format: "<company_id>|<intent>"
+//   intent = "add"           → create a new mailbox row
+//   intent = "mailbox:<id>"  → re-auth an existing mailbox (updates tokens)
+//   (no intent)              → legacy primary-mailbox flow
 export default async (req) => {
   const clientId = process.env.GOOGLE_CLIENT_ID
   const url = new URL(req.url)
   const companyId = url.searchParams.get('company_id') || ''
+  const intent = url.searchParams.get('intent') || 'add'
   const redirectUri = `${url.origin}/auth/gmail/callback`
 
   const scopes = [
@@ -12,6 +16,8 @@ export default async (req) => {
     'https://www.googleapis.com/auth/gmail.send'
   ].join(' ')
 
+  const state = `${companyId}|${intent}`
+
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
     `client_id=${clientId}&` +
     `redirect_uri=${encodeURIComponent(redirectUri)}&` +
@@ -19,7 +25,7 @@ export default async (req) => {
     `scope=${encodeURIComponent(scopes)}&` +
     `access_type=offline&` +
     `prompt=consent&` +
-    `state=${companyId}`
+    `state=${encodeURIComponent(state)}`
 
   return Response.redirect(authUrl, 302)
 }

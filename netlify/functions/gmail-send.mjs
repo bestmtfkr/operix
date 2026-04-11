@@ -1,8 +1,9 @@
-import { createClient } from '@supabase/supabase-js'
+import { makeAdmin, loadMailbox } from './_mailbox-helpers.mjs'
 
 // Sends an email via Gmail API (users.messages.send)
 // Supports new compose AND threaded replies (In-Reply-To + References + threadId)
 // Optional attachments: [{ filename, mimeType, data (base64) }]
+// Accepts either mailbox_id (new) or company_id (legacy → primary mailbox)
 export default async (req) => {
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'POST only' }), { status: 405 })
@@ -11,6 +12,7 @@ export default async (req) => {
   try {
     const {
       company_id,
+      mailbox_id,
       to,
       cc = '',
       bcc = '',
@@ -23,53 +25,14 @@ export default async (req) => {
       references = null
     } = await req.json()
 
-    if (!company_id || !to) {
-      return new Response(JSON.stringify({ error: 'company_id and to required' }), { status: 400 })
+    if ((!company_id && !mailbox_id) || !to) {
+      return new Response(JSON.stringify({ error: 'mailbox_id (or company_id) and to required' }), { status: 400 })
     }
 
-    const supabaseAdmin = createClient(
-      process.env.SUPABASE_URL || 'https://gizgnbjaemxndmrherir.supabase.co',
-      process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || ''
-    )
-
-    const { data: company } = await supabaseAdmin.from('companies')
-      .select('gmail_tokens').eq('id', company_id).single()
-
-    if (!company?.gmail_tokens?.access_token) {
-      return new Response(JSON.stringify({ error: 'Gmail not connected' }), { status: 401 })
-    }
-
-    let token = company.gmail_tokens.access_token
-    const fromEmail = company.gmail_tokens.email || ''
-
-    // Refresh token if expired
-    if (company.gmail_tokens.expires_at && new Date(company.gmail_tokens.expires_at) < new Date()) {
-      if (!company.gmail_tokens.refresh_token) {
-        return new Response(JSON.stringify({ error: 'Token expired, reconnect Gmail' }), { status: 401 })
-      }
-      const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: process.env.GOOGLE_CLIENT_ID,
-          client_secret: process.env.GOOGLE_CLIENT_SECRET,
-          refresh_token: company.gmail_tokens.refresh_token,
-          grant_type: 'refresh_token'
-        })
-      })
-      const refreshData = await refreshRes.json()
-      if (!refreshData.access_token) {
-        return new Response(JSON.stringify({ error: 'Token refresh failed, reconnect Gmail' }), { status: 401 })
-      }
-      token = refreshData.access_token
-      await supabaseAdmin.from('companies').update({
-        gmail_tokens: {
-          ...company.gmail_tokens,
-          access_token: token,
-          expires_at: new Date(Date.now() + (refreshData.expires_in || 3600) * 1000).toISOString()
-        }
-      }).eq('id', company_id)
-    }
+    const supabaseAdmin = makeAdmin()
+    const { mailbox, accessToken } = await loadMailbox(supabaseAdmin, { mailbox_id, company_id })
+    const token = accessToken
+    const fromEmail = mailbox.email_address || mailbox.tokens?.email || ''
 
     // Build RFC 2822 message (multipart if attachments or html+text, plain if simple)
     const boundary = `----=_Operix_${Date.now()}_${Math.random().toString(36).slice(2)}`
@@ -166,11 +129,12 @@ export default async (req) => {
       success: true,
       gmail_id: sendData.id,
       thread_id: sendData.threadId,
-      from: fromEmail
+      from: fromEmail,
+      mailbox_id: mailbox.id || null
     }), { headers: { 'Content-Type': 'application/json' } })
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 })
+    return new Response(JSON.stringify({ error: err.message }), { status: err.status || 500 })
   }
 }
 

@@ -102,14 +102,27 @@ export default function SmartInbox() {
     if (companyId) { loadJobs(); loadClients(); checkGmail(); loadTeamAndConfig() }
   }, [companyId])
 
-  // Auto-sync Gmail — initial delay so first load renders fast, then every 2 min
+  // Auto-sync all active mailboxes every 2 minutes.
+  // Waits 8s before first sync so the initial email list renders first.
+  // Rate-limits to 3 concurrent fetches to avoid Gmail 429s.
   useEffect(() => {
-    if (!gmailConnected || !companyId) return
-    // Wait 8s before first sync so the initial email list renders first
-    const firstSync = setTimeout(() => fetchGmailEmails(true), 8000)
-    const interval = setInterval(() => fetchGmailEmails(true), 2 * 60 * 1000)
+    if (!companyId || mailboxes.length === 0) return
+    const doSync = async () => {
+      const queue = [...mailboxes]
+      const concurrency = 3
+      const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+        while (queue.length) {
+          const mb = queue.shift()
+          if (mb) await fetchMailboxEmails(mb.id, true)
+        }
+      })
+      await Promise.all(workers)
+    }
+    const firstSync = setTimeout(doSync, 8000)
+    const interval = setInterval(doSync, 2 * 60 * 1000)
     return () => { clearTimeout(firstSync); clearInterval(interval) }
-  }, [gmailConnected, companyId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, mailboxes.length])
 
   // Listen for Gmail OAuth callback
   useEffect(() => {
@@ -132,64 +145,87 @@ export default function SmartInbox() {
 
   async function saveGmailTokens(data) {
     // Tokens are stored server-side by the callback function
-    // Frontend only gets the email address
+    // Frontend only gets the email address (+ mailbox_id for new-account flow)
     setGmailConnected(true)
     setGmailEmail(data.email || '')
-    showToast('Gmail connected securely: ' + (data.email || ''))
+    showToast('Connected: ' + (data.email || ''))
+    // Refresh mailboxes list and auto-select the new one if we got its id
+    await loadMailboxes()
+    if (data.mailbox_id) {
+      setSelectedAccountId(data.mailbox_id)
+    }
     fetchGmailEmails()
   }
 
-  function connectGmail() {
-    const w = window.open(`/api/gmail/connect?company_id=${companyId}`, '_blank', 'width=500,height=600,left=200,top=100')
+  function connectGmail(intent = 'add') {
+    const w = window.open(
+      `/api/gmail/connect?company_id=${companyId}&intent=${encodeURIComponent(intent)}`,
+      '_blank',
+      'width=500,height=600,left=200,top=100'
+    )
     if (!w) showToast('Popup blocked — allow popups for this site')
   }
 
-  async function fetchGmailEmails(silent = false) {
-    if (syncing) return // Don't stack syncs
-    setSyncing(true)
+  // Fetch newest emails for a SPECIFIC mailbox and insert into inbox_emails.
+  // Returns the number of new emails saved.
+  async function fetchMailboxEmails(mailboxId, silent = false) {
     try {
-      // Only fetch emails newer than what we already have
-      const newestEmail = emails.length > 0 ? emails[0] : null
-      const afterDate = newestEmail?.metadata?.date
-        ? new Date(newestEmail.metadata.date).toISOString().split('T')[0].replace(/-/g, '/')
+      // Find the newest email we already have for this mailbox — only fetch after that
+      const { data: newest } = await supabase
+        .from('inbox_emails')
+        .select('metadata')
+        .eq('mailbox_id', mailboxId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      const afterDate = newest?.metadata?.date
+        ? new Date(newest.metadata.date).toISOString().split('T')[0].replace(/-/g, '/')
         : null
 
       const res = await fetch('/.netlify/functions/gmail-fetch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ company_id: companyId, max_results: 100, after_date: afterDate })
+        body: JSON.stringify({ mailbox_id: mailboxId, max_results: 100, after_date: afterDate })
       })
-
       const data = await res.json()
-      if (data.error) { if (!silent) showToast('Gmail: ' + data.error); setSyncing(false); return }
-
-      // Check which emails we already have
-      const existingIds = emails.map(e => e.metadata?.gmail_id).filter(Boolean)
-      const newEmails = (data.emails || []).filter(e => !existingIds.includes(e.gmail_id))
-
-      if (newEmails.length === 0) {
-        if (!silent) showToast('No new emails')
-        setSyncing(false)
-        return
+      if (data.error) {
+        if (!silent) showToast('Gmail: ' + data.error)
+        return 0
       }
 
-      // Quick categorize with Haiku (cheap ~$0.001/email) — full analysis happens when user opens
+      // Skip duplicates already in this mailbox
+      const { data: existing } = await supabase
+        .from('inbox_emails')
+        .select('metadata')
+        .eq('mailbox_id', mailboxId)
+        .order('created_at', { ascending: false })
+        .limit(500)
+      const existingIds = new Set((existing || []).map(e => e.metadata?.gmail_id).filter(Boolean))
+      const newEmails = (data.emails || []).filter(e => !existingIds.has(e.gmail_id))
+      if (newEmails.length === 0) return 0
+
       let saved = 0
       for (const email of newEmails) {
         const quick = await categorizeEmail(`From: ${email.from}\nSubject: ${email.subject}\n\n${email.body.slice(0, 500)}`)
 
-        // Auto-link if same thread as an already-linked email
+        // Auto-link if same thread as an already-linked email IN THE SAME MAILBOX
         let autoLinkedJobId = null
         if (email.thread_id) {
-          const threadMatch = emails.find(e =>
-            e.metadata?.thread_id === email.thread_id &&
-            e.metadata?.linked_job_id
-          )
-          if (threadMatch) autoLinkedJobId = threadMatch.metadata.linked_job_id
+          const { data: threadMatch } = await supabase
+            .from('inbox_emails')
+            .select('metadata')
+            .eq('mailbox_id', mailboxId)
+            .filter('metadata->>thread_id', 'eq', email.thread_id)
+            .not('metadata->>linked_job_id', 'is', null)
+            .limit(1)
+            .maybeSingle()
+          if (threadMatch?.metadata?.linked_job_id) autoLinkedJobId = threadMatch.metadata.linked_job_id
         }
 
         const { data: savedEmail, error } = await supabase.from('inbox_emails').insert({
           company_id: companyId,
+          mailbox_id: mailboxId,
           from_address: email.from,
           from_name: quick?.from_name || email.from.split('<')[0].trim(),
           subject: email.subject,
@@ -215,7 +251,6 @@ export default function SmartInbox() {
           }
         }).select().single()
 
-        // If auto-linked, add to job activity
         if (!error && autoLinkedJobId && savedEmail) {
           await supabase.from('job_activity').insert({
             company_id: companyId, job_id: autoLinkedJobId, author_id: profile?.id,
@@ -224,12 +259,43 @@ export default function SmartInbox() {
             metadata: { email_id: savedEmail.id }
           })
         }
-
         if (!error) saved++
       }
 
-      if (!silent || saved > 0) showToast(`${saved} new email${saved !== 1 ? 's' : ''} synced`)
-      loadEmails()
+      return saved
+    } catch (err) {
+      console.error('fetchMailboxEmails error', err)
+      return 0
+    }
+  }
+
+  // Sync one or all mailboxes. If isUnifiedView, loops over every mailbox.
+  // Otherwise syncs only the currently-selected mailbox.
+  async function fetchGmailEmails(silent = false) {
+    if (syncing) return
+    if (mailboxes.length === 0) return
+    setSyncing(true)
+    try {
+      const targets = isUnifiedView
+        ? mailboxes
+        : mailboxes.filter(m => m.id === selectedAccountId)
+
+      let totalSaved = 0
+      // Rate-limit to 3 concurrent fetches
+      const queue = [...targets]
+      const concurrency = 3
+      const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+        while (queue.length) {
+          const mb = queue.shift()
+          if (mb) totalSaved += await fetchMailboxEmails(mb.id, silent)
+        }
+      })
+      await Promise.all(workers)
+
+      if (!silent || totalSaved > 0) {
+        showToast(totalSaved === 0 ? 'No new emails' : `${totalSaved} new email${totalSaved !== 1 ? 's' : ''} synced`)
+      }
+      if (totalSaved > 0) loadEmails()
     } catch (err) {
       showToast('Gmail sync failed')
       console.error(err)
@@ -252,12 +318,22 @@ export default function SmartInbox() {
       .select('metadata').eq('company_id', companyId)
     const existingIds = new Set((existingEmails || []).map(e => e.metadata?.gmail_id).filter(Boolean))
 
+    // If a specific mailbox is selected, import only that one; otherwise use primary
+    const importMailboxId = !isUnifiedView
+      ? selectedAccountId
+      : (mailboxes.find(m => m.is_primary) || mailboxes[0])?.id
+
     do {
       try {
         const res = await fetch('/.netlify/functions/gmail-bulk', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ company_id: companyId, page_token: pageToken, months_back: 6 })
+          body: JSON.stringify({
+            mailbox_id: importMailboxId,
+            company_id: companyId,
+            page_token: pageToken,
+            months_back: 6
+          })
         })
 
         if (!res.ok) {
@@ -291,6 +367,7 @@ export default function SmartInbox() {
 
           await supabase.from('inbox_emails').insert({
             company_id: companyId,
+            mailbox_id: importMailboxId || null,
             from_address: email.from,
             from_name: email.from.split('<')[0].trim(),
             subject: email.subject,
@@ -860,6 +937,7 @@ Only return valid JSON.`, 256, 'haiku'
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          mailbox_id: email.mailbox_id || null,
           company_id: companyId,
           gmail_id: email.metadata?.gmail_id,
           attachment_id: attachment.id,
@@ -972,11 +1050,31 @@ Only return valid JSON.`, 256, 'haiku'
     if (!composer.subject.trim() && !confirm('Send with no subject?')) return
     setSending(true)
     try {
+      // Determine which mailbox to send from:
+      //   - Reply: use the original email's mailbox_id
+      //   - Compose from unified view: use primary mailbox
+      //   - Compose from a specific account view: use that account
+      let sendMailboxId = composer.mailboxId
+      if (!sendMailboxId) {
+        if (composer.replyToId) {
+          const original = emails.find(e => e.id === composer.replyToId)
+          sendMailboxId = original?.mailbox_id || null
+        }
+        if (!sendMailboxId && !isUnifiedView) {
+          sendMailboxId = selectedAccountId
+        }
+        if (!sendMailboxId) {
+          const primary = mailboxes.find(m => m.is_primary) || mailboxes[0]
+          sendMailboxId = primary?.id || null
+        }
+      }
+
       const res = await fetch('/.netlify/functions/gmail-send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          company_id: companyId,
+          mailbox_id: sendMailboxId,
+          company_id: companyId, // legacy fallback
           to: composer.to,
           cc: composer.cc,
           bcc: composer.bcc,
@@ -1583,11 +1681,11 @@ Only return valid JSON.`, 256, 'haiku'
               </div>
             )}
             <button
-              onClick={() => showToast('Add account flow coming soon — use Connect Gmail for now')}
+              onClick={() => connectGmail('add')}
               className="mailbox-row add-row"
             >
               <span className="mailbox-icon">＋</span>
-              <span className="mailbox-label">Add account</span>
+              <span className="mailbox-label">Add Gmail account</span>
             </button>
           </div>
         </div>
