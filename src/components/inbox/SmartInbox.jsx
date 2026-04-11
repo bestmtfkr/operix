@@ -85,6 +85,12 @@ export default function SmartInbox() {
   // Views: orthogonal to mailbox selection (assigned/archived override mailbox filter)
   const [selectedView, setSelectedView] = useState('inbox') // 'inbox' | 'assigned' | 'archived'
 
+  // Folders — sent/drafts/spam/trash. null = default inbox (no folder filter).
+  // The `folder` column on inbox_emails doesn't exist until migration 3.2.2 runs,
+  // so buildQuery guards filter application behind this feature flag.
+  const [selectedFolder, setSelectedFolder] = useState(null) // null | 'sent' | 'drafts' | 'spam' | 'trash'
+  const FOLDERS_ENABLED = true // Flip to false if the column isn't in the DB yet
+
   // Bulk selection for the new toolbar
   const [selectedEmails, setSelectedEmails] = useState(new Set())
   function toggleSelectEmail(id) {
@@ -507,7 +513,7 @@ export default function SmartInbox() {
 
   // Only columns needed for the list view — body/html_body/raw_text/draft_reply are
   // lazy-loaded in openEmail.
-  const LIST_COLUMNS = 'id, company_id, mailbox_id, from_address, from_name, subject, summary, categories, priority, status, suggested_action, assigned_to, comments, created_at, actioned_at, archived_at, metadata'
+  const LIST_COLUMNS = 'id, company_id, mailbox_id, folder, from_address, from_name, subject, summary, categories, priority, status, suggested_action, assigned_to, comments, created_at, actioned_at, archived_at, metadata'
 
   // Build the base query with current view + filter + selected mailbox applied
   // server-side so we don't blow memory on 30k+ rows.
@@ -526,6 +532,14 @@ export default function SmartInbox() {
     } else {
       // Default inbox view hides archived
       q = q.is('archived_at', null)
+    }
+
+    // Folder filter (sent/drafts/spam/trash). Only apply if the column exists.
+    if (FOLDERS_ENABLED && selectedFolder) {
+      q = q.eq('folder', selectedFolder)
+    } else if (FOLDERS_ENABLED && selectedView === 'inbox') {
+      // Default inbox view only shows folder='inbox' (hides sent/spam/trash leak-in)
+      q = q.eq('folder', 'inbox')
     }
 
     // Mailbox filter — unified = no filter, otherwise scope to that mailbox
@@ -588,7 +602,7 @@ export default function SmartInbox() {
     }
   }
 
-  // Reset to page 0 whenever view, filter, mailbox, or company changes
+  // Reset to page 0 whenever view, filter, mailbox, folder, or company changes
   useEffect(() => {
     if (!companyId) return
     setEmails([])
@@ -597,7 +611,7 @@ export default function SmartInbox() {
     clearSelection()
     loadEmails(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedView, filter, selectedAccountId, companyId])
+  }, [selectedView, filter, selectedAccountId, selectedFolder, companyId])
 
   // Infinite scroll: sentinel at end of list
   const sentinelRef = useRef(null)
@@ -1785,26 +1799,54 @@ Only return valid JSON.`, 256, 'haiku'
           <div className="sidebar-label">Views</div>
           <div className="mailbox-list">
             <button
-              onClick={() => { setSelectedView('inbox'); setSelectedAccountId(selectedAccountId || 'unified') }}
-              className={`mailbox-row ${selectedView === 'inbox' ? 'active' : ''}`}
+              onClick={() => { setSelectedView('inbox'); setSelectedFolder(null); setSelectedAccountId(selectedAccountId || 'unified') }}
+              className={`mailbox-row ${selectedView === 'inbox' && !selectedFolder ? 'active' : ''}`}
             >
               <span className="mailbox-icon">📥</span>
               <span className="mailbox-label">All Inbox</span>
             </button>
             <button
-              onClick={() => { setSelectedView('assigned'); setSelectedAccountId('unified') }}
+              onClick={() => { setSelectedView('assigned'); setSelectedFolder(null); setSelectedAccountId('unified') }}
               className={`mailbox-row prominent ${selectedView === 'assigned' ? 'active' : ''}`}
             >
               <span className="mailbox-icon">👤</span>
               <span className="mailbox-label">Assigned to me</span>
             </button>
             <button
-              onClick={() => { setSelectedView('archived'); setSelectedAccountId('unified') }}
+              onClick={() => { setSelectedView('archived'); setSelectedFolder(null); setSelectedAccountId('unified') }}
               className={`mailbox-row ${selectedView === 'archived' ? 'active' : ''}`}
             >
               <span className="mailbox-icon">✅</span>
               <span className="mailbox-label">Archived / Done</span>
             </button>
+          </div>
+        </div>
+
+        {/* FOLDERS — standard email folders (sent/drafts/spam/trash) */}
+        <div className="sidebar-section">
+          <div className="sidebar-label">Folders</div>
+          <div className="mailbox-list">
+            {[
+              { id: 'sent', label: 'Sent', icon: '📤' },
+              { id: 'drafts', label: 'Drafts', icon: '📝' },
+              { id: 'spam', label: 'Spam / Junk', icon: '🛑' },
+              { id: 'trash', label: 'Trash', icon: '🗑' }
+            ].map(f => {
+              const active = selectedFolder === f.id
+              return (
+                <button
+                  key={f.id}
+                  onClick={() => {
+                    setSelectedFolder(f.id)
+                    setSelectedView('inbox') // folders are scoped within inbox view
+                  }}
+                  className={`mailbox-row ${active ? 'active' : ''}`}
+                >
+                  <span className="mailbox-icon">{f.icon}</span>
+                  <span className="mailbox-label">{f.label}</span>
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -1816,12 +1858,12 @@ Only return valid JSON.`, 256, 'haiku'
               // Hide the Unified row when there's only one real mailbox
               .filter(a => a.type !== 'unified' || mailboxes.length > 1)
               .map(acct => {
-                const active = selectedView === 'inbox' && selectedAccountId === acct.id
+                const active = selectedView === 'inbox' && !selectedFolder && selectedAccountId === acct.id
                 const isUnified = acct.type === 'unified'
                 return (
                   <button
                     key={acct.id}
-                    onClick={() => { setSelectedView('inbox'); setSelectedAccountId(acct.id) }}
+                    onClick={() => { setSelectedView('inbox'); setSelectedFolder(null); setSelectedAccountId(acct.id) }}
                     className={`mailbox-row ${active ? 'active' : ''}`}
                     title={isUnified ? 'All accounts' : acct.email}
                   >
