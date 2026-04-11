@@ -896,54 +896,113 @@ Only return valid JSON.`, 256, 'haiku'
     setNewClient(prev => ({ ...prev, [field]: value }))
   }
 
-  // AI-extract the full client record from email sender/signature/body.
+  // Return the set of email addresses this Operix company "owns" —
+  // all connected mailboxes. Used to teach the AI who "we" are so
+  // it never extracts us as the client.
+  function getOurAddresses() {
+    const set = new Set()
+    for (const m of mailboxes) {
+      if (m.email_address) set.add(m.email_address.toLowerCase().trim())
+    }
+    if (gmailEmail) set.add(gmailEmail.toLowerCase().trim())
+    return set
+  }
+
+  // Check if an email address is one of ours
+  function isOurAddress(addr) {
+    return getOurAddresses().has(normalizeEmail(addr))
+  }
+
+  // AI-extract the full client record using full routing context:
+  //  - All our connected mailbox addresses (so AI never picks us)
+  //  - Sender classification from email_senders (lead_source / supplier / etc)
+  //  - Full From / To / Cc headers
+  //  - Email body
   // Returns { name, contact_name, contact_email, contact_phone, address, city, province }
-  // Adapts the prompt based on the sender's classification (lead_source, supplier, etc).
   async function aiExtractClientDetails(email) {
     const from = email.from_name || email.from_address || ''
+    const fromAddr = normalizeEmail(email.from_address)
+    const toRaw = email.metadata?.to || ''
+    const ccRaw = email.metadata?.cc || ''
     const body = (email.body || email.raw_text || email.summary || '').slice(0, 2000)
     const sender = resolveSender(email.from_address)
 
-    let targetInstruction = `Extract the real client/company from this email. Prioritize signature blocks and letterheads over the From header. The target is whoever is actually requesting the service.`
+    const ourAddresses = Array.from(getOurAddresses())
+    const ourAddrList = ourAddresses.length > 0
+      ? ourAddresses.join(', ')
+      : '(none connected)'
 
+    // Parse To/Cc into individual addresses for analysis
+    const parseAddrs = (raw) => raw
+      ? raw.split(',').map(a => a.trim()).filter(Boolean)
+      : []
+    const toAddrs = parseAddrs(toRaw)
+    const ccAddrs = parseAddrs(ccRaw)
+
+    // Are we CC'd rather than the primary recipient? Used in instruction block.
+    const ourInTo = toAddrs.some(a => isOurAddress(a))
+    const ourInCc = ccAddrs.some(a => isOurAddress(a))
+    const routingHint = ourInCc && !ourInTo
+      ? 'IMPORTANT: Our company was CC\'d on this email — we are NOT the primary recipient. The primary To recipient is very likely the real client, OR the client is someone mentioned by name in the body.'
+      : ''
+
+    // Sender-classification pass-through (same as before, still applies)
+    let targetInstruction = `Extract the real client/company from this email. Prioritize signature blocks, letterheads, and explicit mentions over the From header.`
     if (sender?.sender_type === 'lead_source') {
-      targetInstruction = `The sender is a lead aggregator (${sender.display_name || from}). DO NOT extract the aggregator. Read the body carefully to find the END-CUSTOMER — the actual homeowner, property owner, or business requesting service. Ignore the aggregator's branding, logo, contact info, and footer.`
+      targetInstruction = `The sender is a lead aggregator (${sender.display_name || from}). DO NOT extract the aggregator. Read the body to find the END-CUSTOMER — the actual homeowner, property owner, or business requesting service.`
     } else if (sender?.sender_type === 'supplier') {
-      targetInstruction = `The sender is a known supplier. Extract the project owner / contractor the supplier is quoting FOR, not the supplier themselves.`
+      targetInstruction = `The sender is a known supplier. Extract the project owner the supplier is quoting FOR, not the supplier themselves.`
     } else if (sender?.sender_type === 'insurance') {
-      targetInstruction = `The sender is an insurance company. Extract the policyholder (property owner) mentioned in the body, not the adjuster or the insurance company.`
+      targetInstruction = `The sender is an insurance company. Extract the policyholder (property owner), not the adjuster or the insurance company.`
+    } else if (sender?.sender_type === 'internal') {
+      targetInstruction = `The sender is someone on our own team. The client is mentioned in the body, or is one of the external To/Cc recipients. Do NOT extract the sender.`
     }
 
-    const prompt = `${targetInstruction}
+    const prompt = `You are analyzing an email received by our contractor business. Extract the real CLIENT — the entity we should bill and create a job for.
 
-Email:
+OUR COMPANY EMAILS (NEVER extract any of these as the client — these are us, the contractor):
+${ourAddrList}
+
+CLASSIFICATION HINT: ${targetInstruction}
+
+${routingHint}
+
+EMAIL HEADERS:
 From: ${from}
+To: ${toRaw || '(none)'}
+Cc: ${ccRaw || '(none)'}
 Subject: ${email.subject || ''}
 
+EMAIL BODY:
 ${body}
 
-Return a JSON object with these fields (use null for anything not found — do not make up data):
+Extraction rules:
+1. Never extract any of OUR COMPANY EMAILS listed above as the client. We are the contractor, never the client.
+2. If the sender classification is lead_source / supplier / insurance / internal, follow that hint.
+3. If our address appears only in Cc and not in To, the primary To recipient is very likely the client.
+4. Prefer a real human or company mentioned in a signature block over a generic From header.
+5. The contact_email must NOT be any of our company emails, any lead aggregator domain, or a noreply address. Use an end-customer address from the body or To line.
+
+Return ONLY a JSON object (no markdown fences, no commentary):
 {
   "name": "company or client name (required)",
-  "contact_name": "person's name from signature",
-  "contact_email": "contact email (not the aggregator's)",
+  "contact_name": "person's name from signature or body",
+  "contact_email": "end-customer email, null if not found",
   "contact_phone": "phone with area code",
   "address": "street address only",
   "city": "city name",
   "province": "2-letter province/state code like QC, ON, BC"
-}
-
-Only return the JSON object, no markdown fences, no commentary.`
+}`
 
     try {
       const result = await askAIJSON(
         prompt,
-        'You extract client contact details from construction industry emails. Return only JSON, null for missing fields, never fabricate data.',
-        400,
+        'You extract client contact details from construction industry emails. Return only JSON, use null for missing fields, never fabricate data, never extract the contractor themselves as the client.',
+        500,
         'haiku'
       )
       if (!result || !result.name) return null
-      // Clean placeholder-ish values that sometimes slip through
+
       const clean = (v) => {
         if (!v || v === 'null') return ''
         const lower = String(v).trim().toLowerCase()
@@ -952,10 +1011,15 @@ Only return the JSON object, no markdown fences, no commentary.`
             lower.includes('not provided') || lower.startsWith('[')) return ''
         return String(v).trim()
       }
+
+      let contactEmail = clean(result.contact_email)
+      // Safety net: if AI still returned one of our own addresses, blank it out
+      if (contactEmail && isOurAddress(contactEmail)) contactEmail = ''
+
       return {
         name: clean(result.name),
         contact_name: clean(result.contact_name),
-        contact_email: clean(result.contact_email),
+        contact_email: contactEmail,
         contact_phone: clean(result.contact_phone),
         address: clean(result.address),
         city: clean(result.city),
@@ -976,14 +1040,16 @@ Only return the JSON object, no markdown fences, no commentary.`
     const rawFrom = email.from_address || ''
     const emailMatch = rawFrom.match(/<([^>]+)>/)
     const senderEmailAddr = emailMatch ? emailMatch[1].trim() : (rawFrom.includes('@') ? rawFrom.trim() : '')
-    const isLeadOrClassified = !!resolveSender(email.from_address)
-    const seedName = extracted.client_name || email.from_name || ''
+    const senderClassified = resolveSender(email.from_address)
+    // Don't seed the sender as contact if: we're classified as lead/supplier/internal/etc,
+    // OR if the sender is actually one of our own mailboxes
+    const skipSenderAsContact = !!senderClassified || isOurAddress(senderEmailAddr)
+    const seedName = extracted.client_name || (skipSenderAsContact ? '' : email.from_name || '')
 
     setNewClient({
       name: seedName,
-      contact_name: email.from_name || '',
-      // If the sender is a lead aggregator, don't seed their email as contact_email
-      contact_email: isLeadOrClassified ? '' : senderEmailAddr,
+      contact_name: skipSenderAsContact ? '' : (email.from_name || ''),
+      contact_email: skipSenderAsContact ? '' : senderEmailAddr,
       billing_email: '',
       contact_phone: '',
       billing_address_line1: extracted.address || '',
