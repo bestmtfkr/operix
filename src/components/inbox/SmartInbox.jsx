@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../shared/Toast'
 import Modal from '../shared/Modal'
-import { categorizeEmail, analyzeEmailFull, askAIJSON } from '../../lib/ai'
+import { categorizeEmail, analyzeEmailFull, askAIJSON, askAI } from '../../lib/ai'
 import './Inbox.css'
 
 const CAT_COLORS = {
@@ -824,15 +824,53 @@ Only return valid JSON.`, 256, 'haiku'
 
   const [showCreateJobModal, setShowCreateJobModal] = useState(false)
   const [createJobEmail, setCreateJobEmail] = useState(null)
-  const [createJobClientId, setCreateJobClientId] = useState('')
+  const [createJobClientId, setCreateJobClientId] = useState('new') // 'new' | existing client id
   const [createJobNewClient, setCreateJobNewClient] = useState('')
+  const [createJobExtractingClient, setCreateJobExtractingClient] = useState(false)
   const [createJobForm, setCreateJobForm] = useState({ name: '', description: '', site_address: '', priority: 'normal', insurance_claim_number: '' })
+
+  // AI-extract the real client name from email sender/signature/body.
+  // Runs in background when Create-Job modal opens with no pre-extracted data.
+  async function aiExtractClientName(email) {
+    const from = email.from_name || email.from_address || ''
+    const body = (email.body || email.raw_text || email.summary || '').slice(0, 1500)
+    const prompt = `Extract the real company or client name from this email. Prioritize signatures over display names. Ignore personal gmail/yahoo addresses — look at the signature block, letterhead, or mentioned company.
+
+From: ${from}
+Subject: ${email.subject || ''}
+
+${body}
+
+Reply with ONLY the company name, nothing else. If you truly cannot find one, reply with just the person's name from the signature. Do not add quotes or explanations.`
+    try {
+      const result = await askAI(prompt, 'You extract client/company names from construction industry emails. Reply with only the name.', 60, 'haiku')
+      if (!result) return null
+      const cleaned = result.trim().replace(/^["']|["']$/g, '').split('\n')[0].trim()
+      if (cleaned.length < 2 || cleaned.length > 120) return null
+      if (cleaned.toLowerCase().includes('cannot') || cleaned.toLowerCase().includes('unknown')) return null
+      return cleaned
+    } catch {
+      return null
+    }
+  }
 
   function startCreateJobFromEmail(email) {
     const extracted = email.metadata?.extracted_data || {}
     setCreateJobEmail(email)
-    setCreateJobNewClient(extracted.client_name || email.from_name || '')
-    setCreateJobClientId('')
+    // Seed with any pre-existing extracted name, otherwise fall back to sender name
+    const seed = extracted.client_name || email.from_name || ''
+    setCreateJobNewClient(seed)
+    setCreateJobClientId('new')
+
+    // If we had no pre-extracted client name, fire a quick AI extraction
+    if (!extracted.client_name) {
+      setCreateJobExtractingClient(true)
+      aiExtractClientName(email).then(name => {
+        // Only apply if the user hasn't typed something themselves in the meantime
+        setCreateJobNewClient(prev => (prev === seed && name) ? name : prev)
+        setCreateJobExtractingClient(false)
+      })
+    }
     // Build description from AI summary + email body
     let desc = ''
     if (email.summary) desc += email.summary
@@ -871,20 +909,40 @@ Only return valid JSON.`, 256, 'haiku'
 
   async function confirmCreateJobFromEmail() {
     if (!createJobEmail) return
-    const extracted = createJobEmail.metadata?.extracted_data || {}
     let clientId = createJobClientId
 
-    // Create new client if no existing one selected
-    if (!clientId && createJobNewClient.trim()) {
-      const { data: newClient } = await supabase.from('clients').insert({
-        company_id: companyId, name: createJobNewClient.trim(), type: 'commercial',
-        contact_email: createJobEmail.from_address || null
-      }).select().single()
-      if (newClient) clientId = newClient.id
-      loadClients()
+    // Explicit "+ Create New Client" path — insert first, then use returned id
+    if (clientId === 'new') {
+      const newName = createJobNewClient.trim()
+      if (!newName) { showToast('Please enter a client name'); return }
+
+      // Extract sender email address for auto-filling contact_email
+      const rawFrom = createJobEmail.from_address || ''
+      const emailMatch = rawFrom.match(/<([^>]+)>/)
+      const contactEmail = emailMatch ? emailMatch[1].trim() : (rawFrom.includes('@') ? rawFrom.trim() : null)
+
+      const { data: newClient, error: clientErr } = await supabase
+        .from('clients')
+        .insert({
+          company_id: companyId,
+          name: newName,
+          type: 'commercial',
+          contact_name: createJobEmail.from_name || null,
+          contact_email: contactEmail
+        })
+        .select()
+        .single()
+
+      if (clientErr || !newClient) {
+        showToast('Failed to create client: ' + (clientErr?.message || 'unknown'))
+        console.error(clientErr)
+        return
+      }
+      clientId = newClient.id
+      loadClients() // refresh dropdown for future use
     }
 
-    if (!clientId) { showToast('Please select or enter a client name'); return }
+    if (!clientId || clientId === 'new') { showToast('Please select a client'); return }
     if (!createJobForm.name.trim()) { showToast('Please enter a job name'); return }
 
     const { data: jobNum } = await supabase.rpc('generate_job_number', { p_company_id: companyId })
@@ -2166,13 +2224,42 @@ Only return valid JSON.`, 256, 'haiku'
             <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 2 }}>From: {createJobEmail.from_name || createJobEmail.from_address}</div>
             <div style={{ fontSize: 13, fontWeight: 700 }}>{createJobEmail.subject}</div>
           </div>
-          <div className="form-field"><label className="form-label">Client *</label>
-            <select className="form-input" value={createJobClientId} onChange={e => { setCreateJobClientId(e.target.value); if (e.target.value) setCreateJobNewClient('') }}>
-              <option value="">-- Select or create new --</option>
+          <div className="form-field">
+            <label className="form-label">Client *</label>
+            <select
+              className="form-input"
+              value={createJobClientId}
+              onChange={e => setCreateJobClientId(e.target.value)}
+            >
+              <option value="new">+ Create New Client</option>
+              {clients.length > 0 && <option disabled>──────────</option>}
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-          {!createJobClientId && <div className="form-field"><label className="form-label">New Client Name</label><input className="form-input" placeholder="Client name" value={createJobNewClient} onChange={e => setCreateJobNewClient(e.target.value)} /></div>}
+          {createJobClientId === 'new' && (
+            <div className="form-field">
+              <label className="form-label">
+                New Client Name *
+                {createJobExtractingClient && (
+                  <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--primary)', fontWeight: 600 }}>
+                    ✨ Extracting client...
+                  </span>
+                )}
+              </label>
+              <input
+                className="form-input"
+                placeholder={createJobExtractingClient ? 'AI is analyzing the email...' : 'Client name'}
+                value={createJobNewClient}
+                onChange={e => setCreateJobNewClient(e.target.value)}
+                disabled={createJobExtractingClient && !createJobNewClient}
+              />
+              {!createJobExtractingClient && createJobNewClient && (
+                <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>
+                  ✨ AI-suggested from email context — edit if needed
+                </div>
+              )}
+            </div>
+          )}
           <div className="form-field"><label className="form-label">Job Name *</label><input className="form-input" value={createJobForm.name} onChange={e => setCreateJobForm(f => ({ ...f, name: e.target.value }))} /></div>
           <div className="form-row">
             <div className="form-field"><label className="form-label">Stage</label><select className="form-input" value={createJobForm.stage || 'lead'} onChange={e => setCreateJobForm(f => ({ ...f, stage: e.target.value }))}><option value="lead">Lead</option><option value="quoted">Quoted</option><option value="active">Active</option><option value="completed">Completed</option><option value="invoiced">Invoiced</option><option value="closed">Closed</option></select></div>
