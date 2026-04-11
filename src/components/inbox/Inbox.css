@@ -740,6 +740,77 @@
   margin-left: auto;
 }
 
+/* New client inline sub-form (Create Job modal) */
+.new-client-subform {
+  background: rgba(0, 212, 160, 0.03);
+  border: 1px solid rgba(0, 212, 160, 0.2);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+.new-client-subform-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(0, 212, 160, 0.2);
+}
+.new-client-subform-title {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+.new-client-subform-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--primary);
+  font-weight: 700;
+}
+.new-client-subform-status.muted {
+  color: var(--text3);
+  font-weight: 600;
+}
+
+.collision-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 184, 0, 0.08);
+  border: 1px solid rgba(255, 184, 0, 0.3);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.collision-banner code {
+  background: rgba(255, 184, 0, 0.15);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 10px;
+  color: var(--text);
+}
+.collision-use-btn {
+  padding: 6px 12px;
+  background: var(--yellow);
+  border: none;
+  border-radius: 6px;
+  color: #000;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.collision-use-btn:hover { filter: brightness(1.1); }
+
 /* Subtle sender classification dropdown — sits next to the name */
 .sender-classify-select {
   padding: 2px 6px;

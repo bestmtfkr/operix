@@ -882,45 +882,85 @@ Only return valid JSON.`, 256, 'haiku'
   const [showCreateJobModal, setShowCreateJobModal] = useState(false)
   const [createJobEmail, setCreateJobEmail] = useState(null)
   const [createJobClientId, setCreateJobClientId] = useState('new') // 'new' | existing client id
-  const [createJobNewClient, setCreateJobNewClient] = useState('')
   const [createJobExtractingClient, setCreateJobExtractingClient] = useState(false)
+  // Full new-client sub-form state (Option 1 — inline expansion, AI-populated)
+  const [newClient, setNewClient] = useState({
+    name: '', contact_name: '', contact_email: '', billing_email: '',
+    contact_phone: '', billing_address_line1: '', billing_city: '', billing_province_state: ''
+  })
+  // Collision: existing client with matching email already in the DB
+  const [clientCollision, setClientCollision] = useState(null)
   const [createJobForm, setCreateJobForm] = useState({ name: '', description: '', site_address: '', priority: 'normal', insurance_claim_number: '' })
 
-  // AI-extract the real client name from email sender/signature/body.
-  // Runs in background when Create-Job modal opens with no pre-extracted data.
+  function updateNewClient(field, value) {
+    setNewClient(prev => ({ ...prev, [field]: value }))
+  }
+
+  // AI-extract the full client record from email sender/signature/body.
+  // Returns { name, contact_name, contact_email, contact_phone, address, city, province }
   // Adapts the prompt based on the sender's classification (lead_source, supplier, etc).
-  async function aiExtractClientName(email) {
+  async function aiExtractClientDetails(email) {
     const from = email.from_name || email.from_address || ''
-    const body = (email.body || email.raw_text || email.summary || '').slice(0, 1500)
+    const body = (email.body || email.raw_text || email.summary || '').slice(0, 2000)
     const sender = resolveSender(email.from_address)
 
-    // Base prompt — adjusted below based on sender type
-    let instructionBlock = `Extract the real company or client name from this email. Prioritize signatures over display names. Ignore personal gmail/yahoo addresses — look at the signature block, letterhead, or mentioned company.`
+    let targetInstruction = `Extract the real client/company from this email. Prioritize signature blocks and letterheads over the From header. The target is whoever is actually requesting the service.`
 
     if (sender?.sender_type === 'lead_source') {
-      instructionBlock = `The sender of this email is a lead aggregator (${sender.display_name || from}). Do NOT use the sender's name or email as the client. Read the body of the email carefully to extract the END-CUSTOMER'S real name (the homeowner, property owner, or business that is actually requesting the service). Ignore the aggregator's branding.`
+      targetInstruction = `The sender is a lead aggregator (${sender.display_name || from}). DO NOT extract the aggregator. Read the body carefully to find the END-CUSTOMER — the actual homeowner, property owner, or business requesting service. Ignore the aggregator's branding, logo, contact info, and footer.`
     } else if (sender?.sender_type === 'supplier') {
-      instructionBlock = `The sender is a known supplier/vendor (${sender.display_name || from}). The client is likely a project owner or contractor mentioned in the body, NOT the supplier. Look for the project name or the company the supplier is quoting for.`
+      targetInstruction = `The sender is a known supplier. Extract the project owner / contractor the supplier is quoting FOR, not the supplier themselves.`
     } else if (sender?.sender_type === 'insurance') {
-      instructionBlock = `The sender is an insurance company/adjuster. The client is the policyholder (property owner) mentioned in the body, not the adjuster. Extract the insured party's name.`
+      targetInstruction = `The sender is an insurance company. Extract the policyholder (property owner) mentioned in the body, not the adjuster or the insurance company.`
     }
 
-    const prompt = `${instructionBlock}
+    const prompt = `${targetInstruction}
 
+Email:
 From: ${from}
 Subject: ${email.subject || ''}
 
 ${body}
 
-Reply with ONLY the name, nothing else. If you truly cannot find one, reply with just the most relevant name from the body. Do not add quotes or explanations.`
+Return a JSON object with these fields (use null for anything not found — do not make up data):
+{
+  "name": "company or client name (required)",
+  "contact_name": "person's name from signature",
+  "contact_email": "contact email (not the aggregator's)",
+  "contact_phone": "phone with area code",
+  "address": "street address only",
+  "city": "city name",
+  "province": "2-letter province/state code like QC, ON, BC"
+}
+
+Only return the JSON object, no markdown fences, no commentary.`
 
     try {
-      const result = await askAI(prompt, 'You extract client/company names from construction industry emails. Reply with only the name.', 80, 'haiku')
-      if (!result) return null
-      const cleaned = result.trim().replace(/^["']|["']$/g, '').split('\n')[0].trim()
-      if (cleaned.length < 2 || cleaned.length > 120) return null
-      if (cleaned.toLowerCase().includes('cannot') || cleaned.toLowerCase().includes('unknown')) return null
-      return cleaned
+      const result = await askAIJSON(
+        prompt,
+        'You extract client contact details from construction industry emails. Return only JSON, null for missing fields, never fabricate data.',
+        400,
+        'haiku'
+      )
+      if (!result || !result.name) return null
+      // Clean placeholder-ish values that sometimes slip through
+      const clean = (v) => {
+        if (!v || v === 'null') return ''
+        const lower = String(v).trim().toLowerCase()
+        if (lower === 'n/a' || lower === 'none' || lower === 'unknown' ||
+            lower.includes('not mentioned') || lower.includes('not specified') ||
+            lower.includes('not provided') || lower.startsWith('[')) return ''
+        return String(v).trim()
+      }
+      return {
+        name: clean(result.name),
+        contact_name: clean(result.contact_name),
+        contact_email: clean(result.contact_email),
+        contact_phone: clean(result.contact_phone),
+        address: clean(result.address),
+        city: clean(result.city),
+        province: clean(result.province)
+      }
     } catch {
       return null
     }
@@ -929,20 +969,53 @@ Reply with ONLY the name, nothing else. If you truly cannot find one, reply with
   function startCreateJobFromEmail(email) {
     const extracted = email.metadata?.extracted_data || {}
     setCreateJobEmail(email)
-    // Seed with any pre-existing extracted name, otherwise fall back to sender name
-    const seed = extracted.client_name || email.from_name || ''
-    setCreateJobNewClient(seed)
     setCreateJobClientId('new')
+    setClientCollision(null)
 
-    // If we had no pre-extracted client name, fire a quick AI extraction
-    if (!extracted.client_name) {
-      setCreateJobExtractingClient(true)
-      aiExtractClientName(email).then(name => {
-        // Only apply if the user hasn't typed something themselves in the meantime
-        setCreateJobNewClient(prev => (prev === seed && name) ? name : prev)
-        setCreateJobExtractingClient(false)
-      })
-    }
+    // Seed new-client sub-form from email basics + any pre-extracted data
+    const rawFrom = email.from_address || ''
+    const emailMatch = rawFrom.match(/<([^>]+)>/)
+    const senderEmailAddr = emailMatch ? emailMatch[1].trim() : (rawFrom.includes('@') ? rawFrom.trim() : '')
+    const isLeadOrClassified = !!resolveSender(email.from_address)
+    const seedName = extracted.client_name || email.from_name || ''
+
+    setNewClient({
+      name: seedName,
+      contact_name: email.from_name || '',
+      // If the sender is a lead aggregator, don't seed their email as contact_email
+      contact_email: isLeadOrClassified ? '' : senderEmailAddr,
+      billing_email: '',
+      contact_phone: '',
+      billing_address_line1: extracted.address || '',
+      billing_city: extracted.city || '',
+      billing_province_state: extracted.province_state || ''
+    })
+
+    // Always run AI extraction for full client details (unless we already have everything)
+    setCreateJobExtractingClient(true)
+    aiExtractClientDetails(email).then(details => {
+      setCreateJobExtractingClient(false)
+      if (!details) return
+      // Merge: only overwrite fields the user hasn't touched (still equal to seed)
+      setNewClient(prev => ({
+        name: prev.name === seedName && details.name ? details.name : (prev.name || details.name || ''),
+        contact_name: prev.contact_name || details.contact_name || '',
+        contact_email: prev.contact_email || details.contact_email || '',
+        billing_email: prev.billing_email || '',
+        contact_phone: prev.contact_phone || details.contact_phone || '',
+        billing_address_line1: prev.billing_address_line1 || details.address || '',
+        billing_city: prev.billing_city || details.city || '',
+        billing_province_state: prev.billing_province_state || details.province || ''
+      }))
+      // Collision check — does a client with this email already exist?
+      const candidateEmail = details.contact_email?.toLowerCase().trim()
+      if (candidateEmail) {
+        const existing = clients.find(c =>
+          (c.contact_email || '').toLowerCase().trim() === candidateEmail
+        )
+        if (existing) setClientCollision(existing)
+      }
+    })
     // Build description from AI summary + email body
     let desc = ''
     if (email.summary) desc += email.summary
@@ -983,35 +1056,36 @@ Reply with ONLY the name, nothing else. If you truly cannot find one, reply with
     if (!createJobEmail) return
     let clientId = createJobClientId
 
-    // Explicit "+ Create New Client" path — insert first, then use returned id
+    // Explicit "+ Create New Client" path — insert full record, then use returned id
     if (clientId === 'new') {
-      const newName = createJobNewClient.trim()
-      if (!newName) { showToast('Please enter a client name'); return }
+      if (!newClient.name.trim()) { showToast('Please enter a client name'); return }
 
-      // Extract sender email address for auto-filling contact_email
-      const rawFrom = createJobEmail.from_address || ''
-      const emailMatch = rawFrom.match(/<([^>]+)>/)
-      const contactEmail = emailMatch ? emailMatch[1].trim() : (rawFrom.includes('@') ? rawFrom.trim() : null)
+      const payload = {
+        company_id: companyId,
+        type: 'commercial',
+        name: newClient.name.trim(),
+        contact_name: newClient.contact_name?.trim() || null,
+        contact_email: newClient.contact_email?.trim() || null,
+        contact_phone: newClient.contact_phone?.trim() || null,
+        billing_email: newClient.billing_email?.trim() || null,
+        billing_address_line1: newClient.billing_address_line1?.trim() || null,
+        billing_city: newClient.billing_city?.trim() || null,
+        billing_province_state: newClient.billing_province_state?.trim() || null
+      }
 
-      const { data: newClient, error: clientErr } = await supabase
+      const { data: saved, error: clientErr } = await supabase
         .from('clients')
-        .insert({
-          company_id: companyId,
-          name: newName,
-          type: 'commercial',
-          contact_name: createJobEmail.from_name || null,
-          contact_email: contactEmail
-        })
+        .insert(payload)
         .select()
         .single()
 
-      if (clientErr || !newClient) {
+      if (clientErr || !saved) {
         showToast('Failed to create client: ' + (clientErr?.message || 'unknown'))
         console.error(clientErr)
         return
       }
-      clientId = newClient.id
-      loadClients() // refresh dropdown for future use
+      clientId = saved.id
+      loadClients()
     }
 
     if (!clientId || clientId === 'new') { showToast('Please select a client'); return }
@@ -2357,27 +2431,134 @@ Reply with ONLY the name, nothing else. If you truly cannot find one, reply with
             </select>
           </div>
           {createJobClientId === 'new' && (
-            <div className="form-field">
-              <label className="form-label">
-                New Client Name *
-                {createJobExtractingClient && (
-                  <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--primary)', fontWeight: 600 }}>
-                    ✨ Extracting client...
+            <div className="new-client-subform">
+              <div className="new-client-subform-header">
+                <span className="new-client-subform-title">New client details</span>
+                {createJobExtractingClient ? (
+                  <span className="new-client-subform-status">
+                    <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} />
+                    ✨ Extracting client info...
+                  </span>
+                ) : newClient.name && (
+                  <span className="new-client-subform-status muted">
+                    ✨ AI pre-filled — review and edit
                   </span>
                 )}
-              </label>
-              <input
-                className="form-input"
-                placeholder={createJobExtractingClient ? 'AI is analyzing the email...' : 'Client name'}
-                value={createJobNewClient}
-                onChange={e => setCreateJobNewClient(e.target.value)}
-                disabled={createJobExtractingClient && !createJobNewClient}
-              />
-              {!createJobExtractingClient && createJobNewClient && (
-                <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>
-                  ✨ AI-suggested from email context — edit if needed
+              </div>
+
+              {/* Collision banner — existing client with matching email */}
+              {clientCollision && (
+                <div className="collision-banner">
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--yellow)', marginBottom: 2 }}>
+                      ⚠ Existing client with this email
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text2)' }}>
+                      <strong>{clientCollision.name}</strong> already exists with{' '}
+                      <code>{clientCollision.contact_email}</code>
+                    </div>
+                  </div>
+                  <button
+                    className="collision-use-btn"
+                    onClick={() => {
+                      setCreateJobClientId(clientCollision.id)
+                      setClientCollision(null)
+                    }}
+                  >
+                    Use existing
+                  </button>
                 </div>
               )}
+
+              <div className="form-field">
+                <label className="form-label">Company Name *</label>
+                <input
+                  className="form-input"
+                  placeholder={createJobExtractingClient ? 'AI is analyzing the email...' : 'Client or company name'}
+                  value={newClient.name}
+                  onChange={e => updateNewClient('name', e.target.value)}
+                />
+              </div>
+
+              <div className="form-row">
+                <div className="form-field">
+                  <label className="form-label">Contact Name</label>
+                  <input
+                    className="form-input"
+                    placeholder="Michael Smith"
+                    value={newClient.contact_name}
+                    onChange={e => updateNewClient('contact_name', e.target.value)}
+                  />
+                </div>
+                <div className="form-field">
+                  <label className="form-label">Phone</label>
+                  <input
+                    className="form-input"
+                    placeholder="(514) 555-1234"
+                    value={newClient.contact_phone}
+                    onChange={e => updateNewClient('contact_phone', e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="form-field">
+                <label className="form-label">Email</label>
+                <input
+                  className="form-input"
+                  type="email"
+                  placeholder="contact@company.com"
+                  value={newClient.contact_email}
+                  onChange={e => updateNewClient('contact_email', e.target.value)}
+                />
+              </div>
+
+              <div className="form-field">
+                <label className="form-label">
+                  Billing Email
+                  <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 6, fontWeight: 400 }}>
+                    (if different from contact email)
+                  </span>
+                </label>
+                <input
+                  className="form-input"
+                  type="email"
+                  placeholder={newClient.contact_email || 'billing@company.com'}
+                  value={newClient.billing_email}
+                  onChange={e => updateNewClient('billing_email', e.target.value)}
+                />
+              </div>
+
+              <div className="form-field">
+                <label className="form-label">Address</label>
+                <input
+                  className="form-input"
+                  placeholder="20 Avenue du Rhône"
+                  value={newClient.billing_address_line1}
+                  onChange={e => updateNewClient('billing_address_line1', e.target.value)}
+                />
+              </div>
+
+              <div className="form-row">
+                <div className="form-field">
+                  <label className="form-label">City</label>
+                  <input
+                    className="form-input"
+                    placeholder="Montreal"
+                    value={newClient.billing_city}
+                    onChange={e => updateNewClient('billing_city', e.target.value)}
+                  />
+                </div>
+                <div className="form-field">
+                  <label className="form-label">Province</label>
+                  <input
+                    className="form-input"
+                    placeholder="QC"
+                    maxLength={2}
+                    value={newClient.billing_province_state}
+                    onChange={e => updateNewClient('billing_province_state', e.target.value.toUpperCase())}
+                  />
+                </div>
+              </div>
             </div>
           )}
           <div className="form-field"><label className="form-label">Job Name *</label><input className="form-input" value={createJobForm.name} onChange={e => setCreateJobForm(f => ({ ...f, name: e.target.value }))} /></div>
