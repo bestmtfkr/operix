@@ -46,6 +46,7 @@ export default function SmartInbox() {
   // Desktop = 3-column layout (sidebar | list | preview). Mobile = modal for detail.
   const [isDesktop, setIsDesktop] = useState(typeof window !== 'undefined' && window.innerWidth >= 900)
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
+  const [headerExpanded, setHeaderExpanded] = useState(false)
 
   useEffect(() => {
     function onResize() { setIsDesktop(window.innerWidth >= 900) }
@@ -727,6 +728,7 @@ Only return valid JSON.`, 256, 'haiku'
     // Allow switching between emails — only block if it's the same one already open
     if (showDetail?.id === email.id) return
     setOpening(true)
+    setHeaderExpanded(false)
 
     // Open detail immediately with list-row data — body fetches in background
     setShowDetail({ ...email, _openedFrom: tab, _analyzing: email.metadata?.needs_full_analysis, _bodyLoading: true })
@@ -1046,18 +1048,109 @@ Only return valid JSON.`, 256, 'haiku'
   ]
 
   // Shared email detail content — rendered in mobile Modal OR desktop preview pane
+  // Extract sender email from "Name <email@x.com>" or raw email
+  const senderRaw = showDetail?.from_address || ''
+  const senderEmail = (() => {
+    const m = senderRaw.match(/<([^>]+)>/)
+    return (m ? m[1] : senderRaw).trim()
+  })()
+  const senderName = showDetail?.from_name || senderEmail.split('@')[0] || 'Unknown'
+  const senderInitial = (senderName || '?').charAt(0).toUpperCase()
+  const senderCat = (showDetail?.categories || [])[0] || 'client'
+  const senderAvColor = { insurance: '#8B5CF6', urgent: '#FF3B5C', supplier: '#2196F3', pm: '#FF6B35', client: '#00D4A0', internal: '#7A8799' }[senderCat] || '#00D4A0'
+  const toAddr = showDetail?.metadata?.to || gmailEmail || ''
+  const ccAddr = showDetail?.metadata?.cc || ''
+  const fullDate = showDetail?.metadata?.date
+    ? new Date(showDetail.metadata.date).toLocaleString('en-CA', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : new Date(showDetail?.created_at || Date.now()).toLocaleString('en-CA')
+
   const emailDetailContent = showDetail ? (
     <>
-      {/* Subject + From */}
-      <div style={{ paddingBottom: 14, borderBottom: '1px solid var(--border)', marginBottom: 14 }}>
-        <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.3, marginBottom: 8 }}>{showDetail.subject}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>{showDetail.from_name || showDetail.from_address}</span>
-          <span style={{ fontSize: 11, color: 'var(--text3)' }}>{formatEmailDate(showDetail)}</span>
-          {(showDetail.categories || []).map(c => {
-            const s = CAT_COLORS[c] || CAT_COLORS.client
-            return <span key={c} className="etag" style={{ background: s.bg, color: s.color }}>{c.toUpperCase()}</span>
-          })}
+      {/* Subject */}
+      <div style={{ fontSize: 20, fontWeight: 800, lineHeight: 1.3, marginBottom: 16, wordBreak: 'break-word' }}>
+        {showDetail.subject || '(no subject)'}
+      </div>
+
+      {/* Gmail-style header */}
+      <div style={{ display: 'flex', gap: 12, paddingBottom: 14, borderBottom: '1px solid var(--border)', marginBottom: 14 }}>
+        {/* Avatar */}
+        <div style={{
+          width: 40, height: 40, minWidth: 40, borderRadius: '50%',
+          background: senderAvColor, color: '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 15, fontWeight: 700, flexShrink: 0
+        }}>{senderInitial}</div>
+
+        {/* Sender + recipients */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Sender line — name + email + date */}
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{senderName}</span>
+            <span style={{ fontSize: 12, color: 'var(--text3)', wordBreak: 'break-all' }}>&lt;{senderEmail}&gt;</span>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>{fullDate}</span>
+          </div>
+
+          {/* To line + expand chevron */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text3)' }}>
+            <span>to {toAddr || '—'}</span>
+            <button
+              onClick={() => setHeaderExpanded(h => !h)}
+              style={{
+                background: 'none', border: 'none', color: 'var(--text3)',
+                cursor: 'pointer', padding: '2px 4px', fontSize: 10, fontFamily: 'DM Sans',
+                display: 'inline-flex', alignItems: 'center'
+              }}
+              title={headerExpanded ? 'Hide details' : 'Show details'}
+            >
+              {headerExpanded ? '▲' : '▼'}
+            </button>
+          </div>
+
+          {/* CC line (shown collapsed if present) */}
+          {!headerExpanded && ccAddr && (
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 1 }}>
+              cc {ccAddr}
+            </div>
+          )}
+
+          {/* Expanded detail panel — Gmail-style key/value grid */}
+          {headerExpanded && (
+            <div style={{
+              marginTop: 8, padding: '10px 12px',
+              background: 'var(--bg2)', border: '1px solid var(--border)',
+              borderRadius: 8, fontSize: 11, color: 'var(--text2)',
+              display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 12px'
+            }}>
+              <span style={{ color: 'var(--text3)' }}>from:</span>
+              <span style={{ wordBreak: 'break-all' }}>
+                <strong style={{ color: 'var(--text)' }}>{senderName}</strong> &lt;{senderEmail}&gt;
+              </span>
+              <span style={{ color: 'var(--text3)' }}>to:</span>
+              <span style={{ wordBreak: 'break-all' }}>{toAddr || '—'}</span>
+              {ccAddr && <>
+                <span style={{ color: 'var(--text3)' }}>cc:</span>
+                <span style={{ wordBreak: 'break-all' }}>{ccAddr}</span>
+              </>}
+              <span style={{ color: 'var(--text3)' }}>date:</span>
+              <span>{fullDate}</span>
+              <span style={{ color: 'var(--text3)' }}>subject:</span>
+              <span style={{ wordBreak: 'break-word' }}>{showDetail.subject || '(no subject)'}</span>
+              {showDetail.metadata?.message_id && <>
+                <span style={{ color: 'var(--text3)' }}>msg-id:</span>
+                <span style={{ wordBreak: 'break-all', fontFamily: 'monospace', fontSize: 10 }}>{showDetail.metadata.message_id}</span>
+              </>}
+            </div>
+          )}
+
+          {/* Category tags */}
+          {(showDetail.categories || []).length > 0 && (
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 8 }}>
+              {(showDetail.categories || []).map(c => {
+                const s = CAT_COLORS[c] || CAT_COLORS.client
+                return <span key={c} className="etag" style={{ background: s.bg, color: s.color }}>{c.toUpperCase()}</span>
+              })}
+            </div>
+          )}
         </div>
       </div>
 
