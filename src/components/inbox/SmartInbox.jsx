@@ -27,7 +27,7 @@ export default function SmartInbox() {
   const [showDetail, setShowDetail] = useState(null)
   const [showCompose, setShowCompose] = useState(false)
   const [inputText, setInputText] = useState('')
-  const [tab, setTab] = useState('inbox') // inbox, suggestions, linked
+  // `tab` removed — replaced by selectedView below (VIEWS section in sidebar)
   const [filter, setFilter] = useState('all')
   const [sortMode, setSortMode] = useState('address') // 'address' or 'name'
   const [emailSort, setEmailSort] = useState('newest')
@@ -81,6 +81,20 @@ export default function SmartInbox() {
   ]
   const selectedAccount = connectedAccounts.find(a => a.id === selectedAccountId) || connectedAccounts[0]
   const isUnifiedView = selectedAccountId === 'unified'
+
+  // Views: orthogonal to mailbox selection (assigned/archived override mailbox filter)
+  const [selectedView, setSelectedView] = useState('inbox') // 'inbox' | 'assigned' | 'archived'
+
+  // Bulk selection for the new toolbar
+  const [selectedEmails, setSelectedEmails] = useState(new Set())
+  function toggleSelectEmail(id) {
+    setSelectedEmails(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  function clearSelection() { setSelectedEmails(new Set()) }
 
   // In unified view, look up which mailbox a given email belongs to so we can color-dot the avatar
   const mailboxById = new Map(mailboxes.map(m => [m.id, m]))
@@ -202,7 +216,18 @@ export default function SmartInbox() {
         .order('created_at', { ascending: false })
         .limit(500)
       const existingIds = new Set((existing || []).map(e => e.metadata?.gmail_id).filter(Boolean))
-      const newEmails = (data.emails || []).filter(e => !existingIds.has(e.gmail_id))
+      // Skip dupes AND truly-empty emails at sync time (Option C)
+      const newEmails = (data.emails || []).filter(e => {
+        if (existingIds.has(e.gmail_id)) return false
+        const from = (e.from || '').trim().replace(/^<|>$/g, '')
+        const subj = (e.subject || '').trim()
+        const bodyLen = (e.body || '').trim().length + (e.html_body || '').trim().length
+        if (!from && !subj && bodyLen < 30) {
+          console.log('Skipping empty email at sync:', e.gmail_id)
+          return false
+        }
+        return true
+      })
       if (newEmails.length === 0) return 0
 
       let saved = 0
@@ -482,9 +507,9 @@ export default function SmartInbox() {
 
   // Only columns needed for the list view — body/html_body/raw_text/draft_reply are
   // lazy-loaded in openEmail.
-  const LIST_COLUMNS = 'id, company_id, mailbox_id, from_address, from_name, subject, summary, categories, priority, status, suggested_action, assigned_to, comments, created_at, actioned_at, metadata'
+  const LIST_COLUMNS = 'id, company_id, mailbox_id, from_address, from_name, subject, summary, categories, priority, status, suggested_action, assigned_to, comments, created_at, actioned_at, archived_at, metadata'
 
-  // Build the base query with current tab + filter + selected mailbox applied
+  // Build the base query with current view + filter + selected mailbox applied
   // server-side so we don't blow memory on 30k+ rows.
   function buildQuery() {
     let q = supabase
@@ -492,16 +517,20 @@ export default function SmartInbox() {
       .select(LIST_COLUMNS)
       .eq('company_id', companyId)
 
+    // Views take precedence over mailbox filter for the archived/assigned cases
+    if (selectedView === 'archived') {
+      q = q.not('archived_at', 'is', null)
+    } else if (selectedView === 'assigned') {
+      if (profile?.id) q = q.eq('assigned_to', profile.id)
+      q = q.is('archived_at', null)
+    } else {
+      // Default inbox view hides archived
+      q = q.is('archived_at', null)
+    }
+
     // Mailbox filter — unified = no filter, otherwise scope to that mailbox
     if (selectedAccountId && selectedAccountId !== 'unified') {
       q = q.eq('mailbox_id', selectedAccountId)
-    }
-
-    // Tab filters (inbox/suggestions/linked)
-    if (tab === 'suggestions') {
-      q = q.neq('status', 'actioned').filter('metadata->>linked_job_id', 'is', null)
-    } else if (tab === 'linked') {
-      q = q.not('metadata->>linked_job_id', 'is', null)
     }
 
     // Category/status filters (all/unread/insurance/client/supplier/urgent)
@@ -559,15 +588,16 @@ export default function SmartInbox() {
     }
   }
 
-  // Reset to page 0 whenever tab, filter, mailbox, or company changes
+  // Reset to page 0 whenever view, filter, mailbox, or company changes
   useEffect(() => {
     if (!companyId) return
     setEmails([])
     setEmailPage(0)
     setHasMore(true)
+    clearSelection()
     loadEmails(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, filter, selectedAccountId, companyId])
+  }, [selectedView, filter, selectedAccountId, companyId])
 
   // Infinite scroll: sentinel at end of list
   const sentinelRef = useRef(null)
@@ -580,7 +610,7 @@ export default function SmartInbox() {
     }, { rootMargin: '400px' })
     observer.observe(sentinelRef.current)
     return () => observer.disconnect()
-  }, [emailPage, hasMore, loadingMore, searchResults, tab, filter])
+  }, [emailPage, hasMore, loadingMore, searchResults, selectedView, filter])
 
   async function loadJobs() {
     const { data } = await supabase.from('jobs')
@@ -856,7 +886,7 @@ Only return valid JSON.`, 256, 'haiku'
     setHeaderExpanded(false)
 
     // Open detail immediately with list-row data — body fetches in background
-    setShowDetail({ ...email, _openedFrom: tab, _analyzing: email.metadata?.needs_full_analysis, _bodyLoading: true })
+    setShowDetail({ ...email, _openedFrom: selectedView, _analyzing: email.metadata?.needs_full_analysis, _bodyLoading: true })
 
     // Lazy-fetch the heavy fields (body, html_body, raw_text, draft_reply) only now
     supabase.from('inbox_emails')
@@ -906,7 +936,7 @@ Only return valid JSON.`, 256, 'haiku'
             summary: fullResult.summary || email.summary,
             draft_reply: fullResult.draft_reply || '',
             metadata: { ...email.metadata, needs_full_analysis: false, extracted_data: fullResult.extracted_data || {} },
-            _openedFrom: tab,
+            _openedFrom: selectedView,
             _analyzing: false
           }
           setShowDetail(prev => prev?.id === email.id ? updated : prev)
@@ -975,6 +1005,43 @@ Only return valid JSON.`, 256, 'haiku'
     if (!confirm('Delete?')) return
     await supabase.from('inbox_emails').delete().eq('id', id)
     showToast('Deleted'); setShowDetail(null); loadEmails()
+  }
+
+  // Archive — dedicated state separate from "actioned" (linked to job)
+  async function archiveEmail(id) {
+    await supabase.from('inbox_emails')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', id)
+    showToast('Archived')
+    setEmails(prev => prev.filter(e => e.id !== id))
+    if (showDetail?.id === id) setShowDetail(null)
+  }
+
+  async function bulkArchiveSelected() {
+    if (selectedEmails.size === 0) return
+    const ids = Array.from(selectedEmails)
+    await supabase.from('inbox_emails')
+      .update({ archived_at: new Date().toISOString() })
+      .in('id', ids)
+    showToast(`Archived ${ids.length}`)
+    setEmails(prev => prev.filter(e => !selectedEmails.has(e.id)))
+    clearSelection()
+  }
+
+  // Detect truly-empty emails (no sender AND no subject AND no body content)
+  // These are usually tracking pixels, auto-bounces, or broken API responses
+  function isEmptyEmail(email) {
+    const from = (email.from_address || '').trim().replace(/^<|>$/g, '')
+    const subj = (email.subject || '').trim()
+    const bodyLen = (email.body || '').trim().length + (email.html_body || '').trim().length
+    const summary = (email.summary || '').trim().toLowerCase()
+    const hallucinatedSummary = summary.includes('empty email') ||
+                                summary.includes('no subject') ||
+                                summary.includes('no sender') ||
+                                summary.includes('no content')
+    if (!from && !subj && bodyLen < 30) return true
+    if (!from && !subj && hallucinatedSummary) return true
+    return false
   }
 
   // Parse "Name <email@x.com>" → "email@x.com"
@@ -1178,9 +1245,11 @@ Only return valid JSON.`, 256, 'haiku'
     return d.toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
   }
 
-  // Server-side filters mean `emails` is already tab+filter-scoped.
+  // Server-side filters mean `emails` is already view+filter-scoped.
   // Client-side sort runs over the currently-loaded slice only.
-  let displayEmails = searchResults ? searchResults : emails
+  // Option C: strip empty/garbage rows at render time so the existing DB
+  // cruft is hidden immediately. Sync-time filtering prevents new ones.
+  let displayEmails = (searchResults ? searchResults : emails).filter(e => !isEmptyEmail(e))
 
   const priOrder = { urgent: 0, high: 1, normal: 2, low: 3 }
   displayEmails = [...displayEmails].sort((a, b) => {
@@ -1569,28 +1638,52 @@ Only return valid JSON.`, 256, 'haiku'
           <div style={{ height: 3, background: 'var(--bg2)', borderRadius: 2 }}><div style={{ height: '100%', borderRadius: 2, background: 'var(--primary)', width: importProgress.total ? `${Math.min((importProgress.done / importProgress.total) * 100, 100)}%` : '30%' }} /></div>
         </div>}
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          {[
-            { id: 'inbox', label: 'Inbox' },
-            { id: 'suggestions', label: 'Sort' },
-            { id: 'linked', label: 'Linked' }
-          ].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{
-              flex: 1, padding: '10px', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
-              background: 'transparent', color: tab === t.id ? 'var(--text)' : 'var(--text3)',
-              borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent'
-            }}>{t.label}</button>
-          ))}
+        {/* Bulk actions toolbar — replaces the old tab strip */}
+        <div className="inbox-toolbar">
+          {selectedEmails.size > 0 ? (
+            <>
+              <span className="toolbar-count">{selectedEmails.size} selected</span>
+              <button className="toolbar-btn" onClick={bulkArchiveSelected} title="Archive">📥 Archive</button>
+              <button className="toolbar-btn" onClick={() => showToast('Assign coming soon')} title="Assign">👤 Assign</button>
+              <button className="toolbar-btn danger" onClick={() => showToast('Trash coming soon')} title="Trash">🗑 Trash</button>
+              <button className="toolbar-btn" onClick={clearSelection} title="Clear selection">✕ Clear</button>
+            </>
+          ) : (
+            <>
+              <label className="toolbar-select-all">
+                <input
+                  type="checkbox"
+                  checked={displayEmails.length > 0 && displayEmails.every(e => selectedEmails.has(e.id))}
+                  onChange={e => {
+                    if (e.target.checked) setSelectedEmails(new Set(displayEmails.map(em => em.id)))
+                    else clearSelection()
+                  }}
+                />
+                <span>Select all</span>
+              </label>
+              <span className="toolbar-spacer" />
+              <span className="toolbar-subtle">
+                {selectedView === 'assigned' ? 'Assigned to me'
+                  : selectedView === 'archived' ? 'Archived'
+                  : `${totalEmails.toLocaleString()} emails`}
+              </span>
+            </>
+          )}
         </div>
 
         {/* Email list */}
         <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
         {displayEmails.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-icon">{tab === 'suggestions' ? '✅' : tab === 'linked' ? '🔗' : '📬'}</div>
-            <div className="empty-title">{tab === 'suggestions' ? 'All sorted!' : tab === 'linked' ? 'No linked emails' : 'No emails'}</div>
-            <div className="empty-sub">{tab === 'suggestions' ? 'All emails linked to jobs' : gmailConnected ? 'Emails sync automatically' : 'Connect Gmail or paste an email'}</div>
+            <div className="empty-icon">{selectedView === 'archived' ? '📥' : selectedView === 'assigned' ? '👤' : '📬'}</div>
+            <div className="empty-title">
+              {selectedView === 'archived' ? 'Nothing archived' : selectedView === 'assigned' ? 'Nothing assigned to you' : 'No emails'}
+            </div>
+            <div className="empty-sub">
+              {selectedView === 'archived' ? 'Emails you archive show up here' :
+               selectedView === 'assigned' ? 'Emails assigned to you appear here' :
+               gmailConnected ? 'Emails sync automatically' : 'Connect Gmail or paste an email'}
+            </div>
           </div>
         ) : displayEmails.map(email => {
           const cat = (email.categories || [])[0] || 'client'
@@ -1601,8 +1694,28 @@ Only return valid JSON.`, 256, 'haiku'
           // Real: show the dot in unified view when we have 2+ mailboxes
           const emailAccount = isUnifiedView && mailboxes.length > 1 ? accountForEmail(email) : null
 
+          const isSelected = selectedEmails.has(email.id)
           return (
-            <div key={email.id} className={`email-row ${email.status === 'unread' ? 'unread' : ''} ${showDetail?.id === email.id ? 'selected' : ''}`} onClick={() => openEmail(email)}>
+            <div
+              key={email.id}
+              className={`email-row ${email.status === 'unread' ? 'unread' : ''} ${showDetail?.id === email.id ? 'selected' : ''} ${isSelected ? 'checked' : ''}`}
+              onClick={(e) => {
+                // Don't open detail if user clicked the checkbox or a quick action
+                if (e.target.closest('.email-row-checkbox, .email-row-actions')) return
+                openEmail(email)
+              }}
+            >
+              {/* Checkbox (shows on hover or when in selection mode) */}
+              <label
+                className="email-row-checkbox"
+                onClick={e => e.stopPropagation()}
+              >
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => toggleSelectEmail(email.id)}
+                />
+              </label>
               <div className="email-av-wrap">
                 <div className="email-av" style={{ background: avColors[cat] || '#00D4A0' }}>{init}</div>
                 {emailAccount && (
@@ -1625,7 +1738,14 @@ Only return valid JSON.`, 256, 'haiku'
                   {email.metadata?.attachments?.length > 0 && <span className="etag" style={{ background: 'rgba(255,184,0,0.1)', color: 'var(--yellow)' }}>📎{email.metadata.attachments.length}</span>}
                 </div>
               </div>
-              <div className="email-right"><div className="email-time">{formatEmailDate(email)}</div></div>
+              <div className="email-right">
+                <div className="email-time">{formatEmailDate(email)}</div>
+                <div className="email-row-actions">
+                  <button title="Assign" onClick={e => { e.stopPropagation(); showToast('Assign coming soon') }}>👤</button>
+                  <button title="Snooze" onClick={e => { e.stopPropagation(); showToast('Snooze coming soon') }}>⏰</button>
+                  <button title="Archive" onClick={e => { e.stopPropagation(); archiveEmail(email.id) }}>✓</button>
+                </div>
+              </div>
             </div>
           )
         })}
@@ -1660,6 +1780,34 @@ Only return valid JSON.`, 256, 'haiku'
           <span>Compose</span>
         </button>
 
+        {/* VIEWS — workflow hierarchy (top of sidebar) */}
+        <div className="sidebar-section">
+          <div className="sidebar-label">Views</div>
+          <div className="mailbox-list">
+            <button
+              onClick={() => { setSelectedView('inbox'); setSelectedAccountId(selectedAccountId || 'unified') }}
+              className={`mailbox-row ${selectedView === 'inbox' ? 'active' : ''}`}
+            >
+              <span className="mailbox-icon">📥</span>
+              <span className="mailbox-label">All Inbox</span>
+            </button>
+            <button
+              onClick={() => { setSelectedView('assigned'); setSelectedAccountId('unified') }}
+              className={`mailbox-row prominent ${selectedView === 'assigned' ? 'active' : ''}`}
+            >
+              <span className="mailbox-icon">👤</span>
+              <span className="mailbox-label">Assigned to me</span>
+            </button>
+            <button
+              onClick={() => { setSelectedView('archived'); setSelectedAccountId('unified') }}
+              className={`mailbox-row ${selectedView === 'archived' ? 'active' : ''}`}
+            >
+              <span className="mailbox-icon">✅</span>
+              <span className="mailbox-label">Archived / Done</span>
+            </button>
+          </div>
+        </div>
+
         {/* INBOXES — real mailboxes from DB */}
         <div className="sidebar-section">
           <div className="sidebar-label">Inboxes</div>
@@ -1668,12 +1816,12 @@ Only return valid JSON.`, 256, 'haiku'
               // Hide the Unified row when there's only one real mailbox
               .filter(a => a.type !== 'unified' || mailboxes.length > 1)
               .map(acct => {
-                const active = selectedAccountId === acct.id
+                const active = selectedView === 'inbox' && selectedAccountId === acct.id
                 const isUnified = acct.type === 'unified'
                 return (
                   <button
                     key={acct.id}
-                    onClick={() => setSelectedAccountId(acct.id)}
+                    onClick={() => { setSelectedView('inbox'); setSelectedAccountId(acct.id) }}
                     className={`mailbox-row ${active ? 'active' : ''}`}
                     title={isUnified ? 'All accounts' : acct.email}
                   >
@@ -1683,7 +1831,7 @@ Only return valid JSON.`, 256, 'haiku'
                       <span className="mailbox-dot" style={{ background: acct.color }} />
                     )}
                     <span className="mailbox-label">
-                      {isUnified ? acct.label : (acct.display_name || acct.email)}
+                      {isUnified ? 'Unified Inbox' : acct.email}
                     </span>
                   </button>
                 )

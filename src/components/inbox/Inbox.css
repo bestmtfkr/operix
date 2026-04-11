@@ -278,6 +278,172 @@
   color: var(--text2);
 }
 
+/* Prominent "Assigned to me" button */
+.mailbox-row.prominent {
+  background: rgba(0, 212, 160, 0.06);
+  border: 1px solid rgba(0, 212, 160, 0.2);
+  color: var(--primary);
+  font-weight: 700;
+}
+.mailbox-row.prominent:hover {
+  background: rgba(0, 212, 160, 0.12);
+}
+.mailbox-row.prominent.active {
+  background: rgba(0, 212, 160, 0.18);
+  border-color: rgba(0, 212, 160, 0.4);
+  color: var(--primary);
+}
+
+/* ─── Bulk actions toolbar (replaces old tab strip) ─── */
+.inbox-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  min-height: 42px;
+}
+.toolbar-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-right: 6px;
+}
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+}
+.toolbar-btn:hover {
+  background: var(--card);
+  border-color: var(--text3);
+}
+.toolbar-btn.danger:hover {
+  background: rgba(255, 59, 92, 0.1);
+  border-color: rgba(255, 59, 92, 0.3);
+  color: var(--red);
+}
+.toolbar-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text3);
+  cursor: pointer;
+}
+.toolbar-select-all input {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+.toolbar-spacer { flex: 1; }
+.toolbar-subtle {
+  font-size: 11px;
+  color: var(--text3);
+}
+
+/* ─── Row density + hover quick actions + checkbox ─── */
+.email-row-checkbox {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  min-width: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.email-row-checkbox input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+}
+/* Show checkbox on hover, when row is checked, or when anything is selected */
+.email-row:hover .email-row-checkbox,
+.email-row.checked .email-row-checkbox {
+  display: flex;
+}
+
+.email-row.checked {
+  background: rgba(0, 212, 160, 0.08);
+}
+
+/* Hover quick actions — absolute so they don't shift layout */
+.email-row-actions {
+  display: none;
+  gap: 4px;
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: linear-gradient(to right, transparent, var(--card) 20%);
+  padding: 0 0 0 20px;
+}
+.email-row-actions button {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text2);
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s, transform 0.1s;
+}
+.email-row-actions button:hover {
+  background: var(--primary);
+  color: #000;
+  transform: scale(1.08);
+}
+.email-row:hover .email-row-actions {
+  display: flex;
+}
+.email-row:hover .email-time {
+  opacity: 0;
+}
+.email-right {
+  position: relative;
+}
+.email-time {
+  transition: opacity 0.1s;
+}
+
+/* Tighter density on desktop */
+@media (min-width: 901px) {
+  .email-row {
+    padding: 7px 14px;
+    gap: 10px;
+  }
+  .email-row .email-av-wrap {
+    width: 30px;
+    height: 30px;
+  }
+  .email-row .email-av {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+    font-size: 12px;
+  }
+  .email-row .email-from { font-size: 12.5px; }
+  .email-row .email-subj { font-size: 11.5px; margin-bottom: 1px; }
+  .email-row .email-snippet { font-size: 10.5px; }
+  .email-row .email-tags { margin-top: 2px; gap: 3px; }
+}
+
 /* Mobile: hide desktop sidebar/preview, use inline mobile bar */
 @media (max-width: 900px) {
   .inbox-shell {
