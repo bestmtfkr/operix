@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../shared/Toast'
@@ -54,7 +54,8 @@ export default function SmartInbox() {
   }, [])
 
   useEffect(() => {
-    if (companyId) { loadEmails(); loadJobs(); loadClients(); checkGmail(); loadTeamAndConfig() }
+    // loadEmails runs via the tab/filter effect below
+    if (companyId) { loadJobs(); loadClients(); checkGmail(); loadTeamAndConfig() }
   }, [companyId])
 
   // Auto-sync Gmail — initial delay so first load renders fast, then every 2 min
@@ -334,6 +335,8 @@ export default function SmartInbox() {
 
   const [emailPage, setEmailPage] = useState(0)
   const [totalEmails, setTotalEmails] = useState(0)
+  const [hasMore, setHasMore] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const PAGE_SIZE = 50
 
   const [searchResults, setSearchResults] = useState(null) // null = not searching
@@ -357,47 +360,101 @@ export default function SmartInbox() {
   }
 
   // Only columns needed for the list view — body/html_body/raw_text/draft_reply are
-  // lazy-loaded in openEmail. Without this, each page fetch was ~2-3MB.
+  // lazy-loaded in openEmail.
   const LIST_COLUMNS = 'id, company_id, from_address, from_name, subject, summary, categories, priority, status, suggested_action, assigned_to, comments, created_at, actioned_at, metadata'
 
-  async function loadEmails(page = 0) {
+  // Build the base query with current tab + filter applied server-side
+  // so we don't blow memory on 30k+ rows.
+  function buildQuery() {
+    let q = supabase
+      .from('inbox_emails')
+      .select(LIST_COLUMNS)
+      .eq('company_id', companyId)
+
+    // Tab filters (inbox/suggestions/linked)
+    if (tab === 'suggestions') {
+      q = q.neq('status', 'actioned').filter('metadata->>linked_job_id', 'is', null)
+    } else if (tab === 'linked') {
+      q = q.not('metadata->>linked_job_id', 'is', null)
+    }
+
+    // Category/status filters (all/unread/insurance/client/supplier/urgent)
+    if (filter === 'unread') {
+      q = q.eq('status', 'unread')
+    } else if (filter === 'urgent') {
+      q = q.eq('priority', 'urgent')
+    } else if (['insurance', 'client', 'supplier'].includes(filter)) {
+      q = q.contains('categories', [filter])
+    }
+
+    return q
+  }
+
+  async function loadEmails(page = 0, { append = false } = {}) {
+    if (append) setLoadingMore(true)
     const from = page * PAGE_SIZE
     const to = from + PAGE_SIZE - 1
 
     try {
-      // Use 'estimated' count for 58k+ rows — instant, vs 'exact' which scans.
-      // Fetch list rows + count in parallel.
-      const [listRes, countRes] = await Promise.all([
-        supabase.from('inbox_emails')
-          .select(LIST_COLUMNS)
-          .eq('company_id', companyId)
-          .order('created_at', { ascending: false })
-          .range(from, to),
-        supabase.from('inbox_emails')
-          .select('id', { count: 'estimated', head: true })
-          .eq('company_id', companyId)
-      ])
+      const listRes = await buildQuery()
+        .order('created_at', { ascending: false })
+        .range(from, to)
 
       if (listRes.error) {
         console.error('loadEmails error', listRes.error)
         showToast('Load failed, retrying...')
-        setTimeout(() => loadEmails(page), 2000)
+        setTimeout(() => loadEmails(page, { append }), 2000)
         return
       }
 
-      // Only replace list if we actually got data — avoids wiping on race
-      if (listRes.data) {
-        setEmails(listRes.data)
-        setTotalEmails(countRes.count || listRes.data.length)
-        setEmailPage(page)
+      const rows = listRes.data || []
+      if (append) {
+        setEmails(prev => [...prev, ...rows])
+      } else {
+        setEmails(rows)
+      }
+      setHasMore(rows.length === PAGE_SIZE)
+      setEmailPage(page)
+
+      // Count query only on first page (it's slow on large tables even with estimate)
+      if (page === 0 && !append) {
+        const countRes = await supabase
+          .from('inbox_emails')
+          .select('id', { count: 'estimated', head: true })
+          .eq('company_id', companyId)
+        setTotalEmails(countRes.count || rows.length)
       }
     } catch (err) {
       console.error('loadEmails exception', err)
       showToast('Load failed')
     } finally {
       setLoading(false)
+      setLoadingMore(false)
     }
   }
+
+  // Reset to page 0 whenever tab, filter, or company changes
+  useEffect(() => {
+    if (!companyId) return
+    setEmails([])
+    setEmailPage(0)
+    setHasMore(true)
+    loadEmails(0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, filter, companyId])
+
+  // Infinite scroll: sentinel at end of list
+  const sentinelRef = useRef(null)
+  useEffect(() => {
+    if (!sentinelRef.current || !hasMore || loadingMore || searchResults) return
+    const observer = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMore && !loadingMore) {
+        loadEmails(emailPage + 1, { append: true })
+      }
+    }, { rootMargin: '400px' })
+    observer.observe(sentinelRef.current)
+    return () => observer.disconnect()
+  }, [emailPage, hasMore, loadingMore, searchResults, tab, filter])
 
   async function loadJobs() {
     const { data } = await supabase.from('jobs')
@@ -960,21 +1017,10 @@ Only return valid JSON.`, 256, 'haiku'
     return d.toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
   }
 
-  const unread = emails.filter(e => e.status === 'unread')
-  const suggestions = emails.filter(e => e.status !== 'actioned' && !e.metadata?.linked_job_id)
-  const linked = emails.filter(e => e.metadata?.linked_job_id)
+  // Server-side filters mean `emails` is already tab+filter-scoped.
+  // Client-side sort runs over the currently-loaded slice only.
+  let displayEmails = searchResults ? searchResults : emails
 
-  // If searching, use search results instead of paginated list
-  let displayEmails = searchResults ? searchResults :
-    tab === 'suggestions' ? suggestions :
-    tab === 'linked' ? linked :
-    filter === 'all' ? emails :
-    filter === 'unread' ? unread :
-    emails.filter(e => (e.categories || []).includes(filter))
-
-  // Search is handled by searchEmails — don't filter here
-
-  // Apply sort
   const priOrder = { urgent: 0, high: 1, normal: 2, low: 3 }
   displayEmails = [...displayEmails].sort((a, b) => {
     if (emailSort === 'newest') return new Date(b.metadata?.date || b.created_at) - new Date(a.metadata?.date || a.created_at)
@@ -1262,12 +1308,16 @@ Only return valid JSON.`, 256, 'haiku'
 
         {/* Tabs */}
         <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          {[{ id: 'inbox', label: 'Inbox', count: emails.length }, { id: 'suggestions', label: 'Sort', count: suggestions.length }, { id: 'linked', label: 'Linked', count: linked.length }].map(t => (
+          {[
+            { id: 'inbox', label: 'Inbox' },
+            { id: 'suggestions', label: 'Sort' },
+            { id: 'linked', label: 'Linked' }
+          ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
               flex: 1, padding: '10px', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer', fontFamily: 'DM Sans',
               background: 'transparent', color: tab === t.id ? 'var(--text)' : 'var(--text3)',
               borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent'
-            }}>{t.label} <span style={{ fontSize: 11, color: 'var(--text3)' }}>({t.count})</span></button>
+            }}>{t.label}</button>
           ))}
         </div>
 
@@ -1306,11 +1356,19 @@ Only return valid JSON.`, 256, 'haiku'
           )
         })}
 
-        {totalEmails > PAGE_SIZE && !searchResults && (
-          <div className="inbox-pagination">
-            <button onClick={() => loadEmails(emailPage - 1)} disabled={emailPage === 0}>← Prev</button>
-            <span>{emailPage * PAGE_SIZE + 1}–{Math.min((emailPage + 1) * PAGE_SIZE, totalEmails)} of {totalEmails.toLocaleString()}</span>
-            <button onClick={() => loadEmails(emailPage + 1)} disabled={(emailPage + 1) * PAGE_SIZE >= totalEmails}>Next →</button>
+        {/* Infinite scroll sentinel */}
+        {!searchResults && hasMore && (
+          <div ref={sentinelRef} className="inbox-sentinel">
+            {loadingMore ? (
+              <><div className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> Loading more...</>
+            ) : (
+              <span style={{ fontSize: 11, color: 'var(--text3)' }}>Scroll for more</span>
+            )}
+          </div>
+        )}
+        {!searchResults && !hasMore && displayEmails.length > 0 && (
+          <div style={{ padding: 20, textAlign: 'center', fontSize: 11, color: 'var(--text3)' }}>
+            End of list • {displayEmails.length.toLocaleString()} shown
           </div>
         )}
         </div>

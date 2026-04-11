@@ -230,6 +230,18 @@
   background: var(--bg);
 }
 
+/* Infinite scroll sentinel */
+.inbox-sentinel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  font-size: 11px;
+  color: var(--text3);
+  min-height: 50px;
+}
+
 /* Inbox visual overhaul */
 
 .email-row {
