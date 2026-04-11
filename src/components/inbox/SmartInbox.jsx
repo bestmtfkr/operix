@@ -48,24 +48,47 @@ export default function SmartInbox() {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
   const [headerExpanded, setHeaderExpanded] = useState(false)
 
-  // ─── MOCK multi-account state (UI only — no backend filtering yet) ────────
-  // TODO: replace with real `mailboxes` table once Phase 1 of multi-account ships
-  const [connectedAccounts] = useState([
-    { id: 'unified', type: 'unified', label: 'Unified Inbox', color: null, icon: '📬' },
-    { id: 'mock-1', type: 'gmail', email: 'construction@groupeatmospec.com', color: '#00D4A0', unread: 12 },
-    { id: 'mock-2', type: 'gmail', email: 'anthony@operix.com', color: '#2196F3', unread: 3 },
-    { id: 'mock-3', type: 'gmail', email: 'sales@atmospec.ca', color: '#FF6B35', unread: 0 }
-  ])
+  // ─── Multi-account state — driven by the real mailboxes table ────────
+  const [mailboxes, setMailboxes] = useState([]) // real rows from DB
   const [selectedAccountId, setSelectedAccountId] = useState('unified')
-  const selectedAccount = connectedAccounts.find(a => a.id === selectedAccountId)
+
+  async function loadMailboxes() {
+    if (!companyId) return
+    const { data } = await supabase
+      .from('mailboxes')
+      .select('id, email_address, display_name, color, status, is_primary, provider')
+      .eq('company_id', companyId)
+      .is('archived_at', null)
+      .eq('status', 'active')
+      .order('is_primary', { ascending: false })
+      .order('connected_at', { ascending: true })
+    setMailboxes(data || [])
+  }
+
+  useEffect(() => { loadMailboxes() }, [companyId])
+
+  // Build the list the sidebar renders: synthetic Unified row + real mailboxes
+  const connectedAccounts = [
+    { id: 'unified', type: 'unified', label: 'Unified Inbox', color: null, icon: '📬' },
+    ...mailboxes.map(m => ({
+      id: m.id,
+      type: m.provider || 'gmail',
+      email: m.email_address,
+      color: m.color || '#00D4A0',
+      display_name: m.display_name,
+      is_primary: m.is_primary
+    }))
+  ]
+  const selectedAccount = connectedAccounts.find(a => a.id === selectedAccountId) || connectedAccounts[0]
   const isUnifiedView = selectedAccountId === 'unified'
-  // For unified view, deterministically tag each email with a mock account so we can render the dot
-  function mockAccountForEmail(email) {
-    const accts = connectedAccounts.filter(a => a.id !== 'unified')
-    if (accts.length === 0) return null
-    // Deterministic hash from email id → account index
-    const hash = (email.id || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0)
-    return accts[hash % accts.length]
+
+  // In unified view, look up which mailbox a given email belongs to so we can color-dot the avatar
+  const mailboxById = new Map(mailboxes.map(m => [m.id, m]))
+  function accountForEmail(email) {
+    if (!email?.mailbox_id) return null
+    const m = mailboxById.get(email.mailbox_id)
+    if (!m) return null
+    return { id: m.id, email: m.email_address, color: m.color || '#00D4A0' }
   }
 
   useEffect(() => {
@@ -382,15 +405,20 @@ export default function SmartInbox() {
 
   // Only columns needed for the list view — body/html_body/raw_text/draft_reply are
   // lazy-loaded in openEmail.
-  const LIST_COLUMNS = 'id, company_id, from_address, from_name, subject, summary, categories, priority, status, suggested_action, assigned_to, comments, created_at, actioned_at, metadata'
+  const LIST_COLUMNS = 'id, company_id, mailbox_id, from_address, from_name, subject, summary, categories, priority, status, suggested_action, assigned_to, comments, created_at, actioned_at, metadata'
 
-  // Build the base query with current tab + filter applied server-side
-  // so we don't blow memory on 30k+ rows.
+  // Build the base query with current tab + filter + selected mailbox applied
+  // server-side so we don't blow memory on 30k+ rows.
   function buildQuery() {
     let q = supabase
       .from('inbox_emails')
       .select(LIST_COLUMNS)
       .eq('company_id', companyId)
+
+    // Mailbox filter — unified = no filter, otherwise scope to that mailbox
+    if (selectedAccountId && selectedAccountId !== 'unified') {
+      q = q.eq('mailbox_id', selectedAccountId)
+    }
 
     // Tab filters (inbox/suggestions/linked)
     if (tab === 'suggestions') {
@@ -454,7 +482,7 @@ export default function SmartInbox() {
     }
   }
 
-  // Reset to page 0 whenever tab, filter, or company changes
+  // Reset to page 0 whenever tab, filter, mailbox, or company changes
   useEffect(() => {
     if (!companyId) return
     setEmails([])
@@ -462,7 +490,7 @@ export default function SmartInbox() {
     setHasMore(true)
     loadEmails(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, filter, companyId])
+  }, [tab, filter, selectedAccountId, companyId])
 
   // Infinite scroll: sentinel at end of list
   const sentinelRef = useRef(null)
@@ -1459,8 +1487,8 @@ Only return valid JSON.`, 256, 'haiku'
           const isLinked = email.metadata?.linked_job_id
           const linkedJob = isLinked ? jobs.find(j => j.id === isLinked) : null
           const init = (email.from_name || email.from_address || '?').charAt(0).toUpperCase()
-          // Mock: assign each email a pseudo-account so we can show the dot in unified view
-          const emailAccount = isUnifiedView ? mockAccountForEmail(email) : null
+          // Real: show the dot in unified view when we have 2+ mailboxes
+          const emailAccount = isUnifiedView && mailboxes.length > 1 ? accountForEmail(email) : null
 
           return (
             <div key={email.id} className={`email-row ${email.status === 'unread' ? 'unread' : ''} ${showDetail?.id === email.id ? 'selected' : ''}`} onClick={() => openEmail(email)}>
@@ -1521,36 +1549,41 @@ Only return valid JSON.`, 256, 'haiku'
           <span>Compose</span>
         </button>
 
-        {/* INBOXES — multi-account switcher (mocked for now) */}
+        {/* INBOXES — real mailboxes from DB */}
         <div className="sidebar-section">
           <div className="sidebar-label">Inboxes</div>
           <div className="mailbox-list">
-            {connectedAccounts.map(acct => {
-              const active = selectedAccountId === acct.id
-              const isUnified = acct.type === 'unified'
-              return (
-                <button
-                  key={acct.id}
-                  onClick={() => setSelectedAccountId(acct.id)}
-                  className={`mailbox-row ${active ? 'active' : ''}`}
-                  title={isUnified ? 'All accounts' : acct.email}
-                >
-                  {isUnified ? (
-                    <span className="mailbox-icon">{acct.icon}</span>
-                  ) : (
-                    <span className="mailbox-dot" style={{ background: acct.color }} />
-                  )}
-                  <span className="mailbox-label">
-                    {isUnified ? acct.label : acct.email}
-                  </span>
-                  {acct.unread > 0 && (
-                    <span className="mailbox-badge">{acct.unread}</span>
-                  )}
-                </button>
-              )
-            })}
+            {connectedAccounts
+              // Hide the Unified row when there's only one real mailbox
+              .filter(a => a.type !== 'unified' || mailboxes.length > 1)
+              .map(acct => {
+                const active = selectedAccountId === acct.id
+                const isUnified = acct.type === 'unified'
+                return (
+                  <button
+                    key={acct.id}
+                    onClick={() => setSelectedAccountId(acct.id)}
+                    className={`mailbox-row ${active ? 'active' : ''}`}
+                    title={isUnified ? 'All accounts' : acct.email}
+                  >
+                    {isUnified ? (
+                      <span className="mailbox-icon">{acct.icon}</span>
+                    ) : (
+                      <span className="mailbox-dot" style={{ background: acct.color }} />
+                    )}
+                    <span className="mailbox-label">
+                      {isUnified ? acct.label : (acct.display_name || acct.email)}
+                    </span>
+                  </button>
+                )
+              })}
+            {mailboxes.length === 0 && (
+              <div style={{ padding: '10px 12px', fontSize: 11, color: 'var(--text3)' }}>
+                No mailboxes connected. Use "Connect Gmail" below.
+              </div>
+            )}
             <button
-              onClick={() => showToast('Add account flow coming soon')}
+              onClick={() => showToast('Add account flow coming soon — use Connect Gmail for now')}
               className="mailbox-row add-row"
             >
               <span className="mailbox-icon">＋</span>
