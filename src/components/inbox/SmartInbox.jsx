@@ -45,6 +45,7 @@ export default function SmartInbox() {
   const [sending, setSending] = useState(false)
   // Desktop = 3-column layout (sidebar | list | preview). Mobile = modal for detail.
   const [isDesktop, setIsDesktop] = useState(typeof window !== 'undefined' && window.innerWidth >= 900)
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
 
   useEffect(() => {
     function onResize() { setIsDesktop(window.innerWidth >= 900) }
@@ -1172,6 +1173,85 @@ Only return valid JSON.`, 256, 'haiku'
           </div>
           {!gmailConnected && <button onClick={connectGmail} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600, border: '1px solid rgba(0,212,160,0.2)', background: 'transparent', color: 'var(--primary)', cursor: 'pointer', fontFamily: 'DM Sans' }}>📧 Connect Gmail</button>}
         </div>
+
+        {/* MOBILE ONLY — compact toolbar: Compose + Search + Filter toggle */}
+        {!isDesktop && (
+          <div className="inbox-mobile-bar">
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <button
+                onClick={openCompose}
+                disabled={!gmailConnected}
+                style={{
+                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  padding: '10px 12px', borderRadius: 10, border: 'none',
+                  background: gmailConnected ? 'var(--primary)' : 'var(--card2)',
+                  color: gmailConnected ? '#000' : 'var(--text3)',
+                  fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'DM Sans'
+                }}
+              >
+                ✍️ Compose
+              </button>
+              <button
+                onClick={() => setMobileFiltersOpen(o => !o)}
+                style={{
+                  padding: '10px 14px', borderRadius: 10,
+                  border: '1px solid var(--border)', background: mobileFiltersOpen ? 'var(--card)' : 'transparent',
+                  color: 'var(--text2)', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'DM Sans'
+                }}
+              >
+                ⚙
+              </button>
+            </div>
+            <div style={{ position: 'relative' }}>
+              <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: 'var(--text3)' }}>🔍</span>
+              <input
+                value={emailSearch}
+                onChange={e => setEmailSearch(e.target.value)}
+                placeholder="Search emails..."
+                style={{
+                  width: '100%', padding: '9px 10px 9px 30px', background: 'var(--bg2)',
+                  border: '1px solid var(--border)', borderRadius: 10, fontSize: 13,
+                  color: 'var(--text)', outline: 'none', fontFamily: 'DM Sans', boxSizing: 'border-box'
+                }}
+              />
+            </div>
+
+            {/* Collapsible filters panel */}
+            {mobileFiltersOpen && (
+              <div style={{ marginTop: 10, padding: 10, background: 'var(--bg2)', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {gmailConnected && (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => fetchGmailEmails(false)} disabled={syncing} style={{ flex: 1, padding: '8px', borderRadius: 8, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text2)', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans' }}>{syncing ? '⏳' : '🔄 Sync'}</button>
+                    <button onClick={bulkImport} disabled={importing} style={{ flex: 1, padding: '8px', borderRadius: 8, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text2)', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans' }}>{importing ? '⏳' : '📥 Import'}</button>
+                    <button onClick={() => setShowCompose(s => !s)} style={{ flex: 1, padding: '8px', borderRadius: 8, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text2)', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans' }}>📋 Paste</button>
+                  </div>
+                )}
+                <select value={emailSort} onChange={e => setEmailSort(e.target.value)} style={{ width: '100%', padding: '9px 10px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 12, fontFamily: 'DM Sans', outline: 'none' }}>
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                  <option value="name_az">Name A–Z</option>
+                  <option value="name_za">Name Z–A</option>
+                  <option value="unread">Unread first</option>
+                  <option value="priority">Priority</option>
+                </select>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {filterDefs.map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => setFilter(f.id)}
+                      style={{
+                        padding: '6px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'DM Sans',
+                        border: filter === f.id ? '1px solid var(--primary)' : '1px solid var(--border)',
+                        background: filter === f.id ? 'rgba(0,212,160,0.12)' : 'transparent',
+                        color: filter === f.id ? 'var(--primary)' : 'var(--text2)'
+                      }}
+                    >{f.icon} {f.label}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {importing && <div style={{ padding: '6px 20px', borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--primary)', marginBottom: 4 }}>

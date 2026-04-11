@@ -207,27 +207,27 @@
   color: var(--primary);
 }
 
-/* Mobile: stack vertically, sidebar on top */
+/* Mobile: hide desktop sidebar/preview, use inline mobile bar */
 @media (max-width: 900px) {
   .inbox-shell {
     flex-direction: column;
   }
-  .inbox-sidebar {
-    width: 100%;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-    padding: 12px;
-    max-height: 50vh;
-    order: 1;
-  }
+  .inbox-sidebar { display: none; }
+  .inbox-preview { display: none; }
   .inbox-main {
-    order: 2;
     flex: 1;
     width: auto;
     min-height: 0;
     border-right: none;
   }
-  .inbox-preview { display: none; }
+}
+
+/* Mobile compact toolbar — only shown on mobile */
+.inbox-mobile-bar {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg);
 }
 
 /* Inbox visual overhaul */
