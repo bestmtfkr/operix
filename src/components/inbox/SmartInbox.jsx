@@ -882,19 +882,54 @@ Only return valid JSON.`, 256, 'haiku'
   const [showCreateJobModal, setShowCreateJobModal] = useState(false)
   const [createJobEmail, setCreateJobEmail] = useState(null)
   const [createJobClientId, setCreateJobClientId] = useState('new') // 'new' | existing client id
+  const [createJobContactId, setCreateJobContactId] = useState('new') // 'new' | existing contact id | 'none'
   const [createJobExtractingClient, setCreateJobExtractingClient] = useState(false)
-  // Full new-client sub-form state (Option 1 — inline expansion, AI-populated)
+  // Client sub-form (billable entity)
   const [newClient, setNewClient] = useState({
-    name: '', contact_name: '', contact_email: '', billing_email: '',
-    contact_phone: '', billing_address_line1: '', billing_city: '', billing_province_state: ''
+    name: '', billing_email: '',
+    billing_address_line1: '', billing_city: '', billing_province_state: '',
+    managed_by_name: '' // free text for now; Commit 3 wires this to a client dropdown
+  })
+  // Contact sub-form (person)
+  const [newContact, setNewContact] = useState({
+    name: '', title: '', email: '', phone: '', works_for: ''
   })
   // Collision: existing client with matching email already in the DB
   const [clientCollision, setClientCollision] = useState(null)
+  // Existing contacts loaded for the currently-selected client
+  const [clientContacts, setClientContacts] = useState([])
   const [createJobForm, setCreateJobForm] = useState({ name: '', description: '', site_address: '', priority: 'normal', insurance_claim_number: '' })
 
   function updateNewClient(field, value) {
     setNewClient(prev => ({ ...prev, [field]: value }))
   }
+  function updateNewContact(field, value) {
+    setNewContact(prev => ({ ...prev, [field]: value }))
+  }
+
+  // Load contacts for the currently-selected existing client so users can pick a contact.
+  async function loadClientContacts(clientId) {
+    if (!clientId || clientId === 'new') { setClientContacts([]); return }
+    const { data } = await supabase
+      .from('contacts')
+      .select('id, name, title, email, phone, is_primary')
+      .eq('client_id', clientId)
+      .is('archived_at', null)
+      .order('is_primary', { ascending: false })
+      .order('name', { ascending: true })
+    setClientContacts(data || [])
+    // Auto-select the primary contact if one exists
+    const primary = (data || []).find(c => c.is_primary)
+    setCreateJobContactId(primary ? primary.id : 'new')
+  }
+
+  // When the user changes the client dropdown, refresh the contact list
+  useEffect(() => {
+    if (showCreateJobModal && createJobClientId && createJobClientId !== 'new') {
+      loadClientContacts(createJobClientId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createJobClientId, showCreateJobModal])
 
   // Return the set of email addresses this Operix company "owns" —
   // all connected mailboxes. Used to teach the AI who "we" are so
@@ -913,12 +948,9 @@ Only return valid JSON.`, 256, 'haiku'
     return getOurAddresses().has(normalizeEmail(addr))
   }
 
-  // AI-extract the full client record using full routing context:
-  //  - All our connected mailbox addresses (so AI never picks us)
-  //  - Sender classification from email_senders (lead_source / supplier / etc)
-  //  - Full From / To / Cc headers
-  //  - Email body
-  // Returns { name, contact_name, contact_email, contact_phone, address, city, province }
+  // AI-extract the client (billable entity) AND contact (person) as separate objects.
+  // Returns { client: {name, address, city, province, managed_by},
+  //           contact: {name, title, email, phone, works_for} }
   async function aiExtractClientDetails(email) {
     const from = email.from_name || email.from_address || ''
     const fromAddr = normalizeEmail(email.from_address)
@@ -958,9 +990,16 @@ Only return valid JSON.`, 256, 'haiku'
       targetInstruction = `The sender is someone on our own team. The client is mentioned in the body, or is one of the external To/Cc recipients. Do NOT extract the sender.`
     }
 
-    const prompt = `You are analyzing an email received by our contractor business. Extract the real CLIENT — the entity we should bill and create a job for.
+    const prompt = `You are analyzing an email received by our contractor business. Extract TWO separate things:
 
-OUR COMPANY EMAILS (NEVER extract any of these as the client — these are us, the contractor):
+1. CLIENT = the billable entity (building, condo syndicate, company, homeowner) we should create an invoice for
+2. CONTACT = the individual PERSON writing the email or mentioned in the signature who we should talk to about this job
+
+These can be DIFFERENT. A property manager named Chantal who works for "Gestior" may write on behalf of a building called "SDC Symphonia Sol". In that case:
+- CLIENT = SDC Symphonia Sol (the building, the billable entity)
+- CONTACT = Chantal Monette (the person), works_for = Gestior (her employer)
+
+OUR COMPANY EMAILS (NEVER extract any of these as client or contact — these are us, the contractor):
 ${ourAddrList}
 
 CLASSIFICATION HINT: ${targetInstruction}
@@ -977,31 +1016,39 @@ EMAIL BODY:
 ${body}
 
 Extraction rules:
-1. Never extract any of OUR COMPANY EMAILS listed above as the client. We are the contractor, never the client.
-2. If the sender classification is lead_source / supplier / insurance / internal, follow that hint.
-3. If our address appears only in Cc and not in To, the primary To recipient is very likely the client.
-4. Prefer a real human or company mentioned in a signature block over a generic From header.
-5. The contact_email must NOT be any of our company emails, any lead aggregator domain, or a noreply address. Use an end-customer address from the body or To line.
+1. Never extract any of OUR COMPANY EMAILS as client or contact.
+2. If the email is about a specific building, condo, SDC, property — that's the CLIENT. The person writing is the CONTACT.
+3. If the contact works for a different company than the client (e.g. property manager at management firm writing about a building they manage), put the management firm in contact.works_for and the building in client.name. Also set client.managed_by to the management firm.
+4. If classification is lead_source/supplier/insurance/internal, follow that hint — extract the END-CUSTOMER as the client.
+5. If our address is only in Cc, the primary To recipient is likely the client or contact.
+6. contact.email must NOT be our address, an aggregator domain, or noreply@.
 
 Return ONLY a JSON object (no markdown fences, no commentary):
 {
-  "name": "company or client name (required)",
-  "contact_name": "person's name from signature or body",
-  "contact_email": "end-customer email, null if not found",
-  "contact_phone": "phone with area code",
-  "address": "street address only",
-  "city": "city name",
-  "province": "2-letter province/state code like QC, ON, BC"
+  "client": {
+    "name": "the billable entity — building, condo, company, homeowner (required)",
+    "address": "street address of the property/client",
+    "city": "city",
+    "province": "2-letter code like QC, ON",
+    "managed_by": "property management company name if applicable, else null"
+  },
+  "contact": {
+    "name": "person's full name from signature or body",
+    "title": "job title if visible (Property Manager, Owner, Accounting, etc)",
+    "email": "person's email address",
+    "phone": "phone with area code",
+    "works_for": "company the contact works for (often different from the client entity)"
+  }
 }`
 
     try {
       const result = await askAIJSON(
         prompt,
-        'You extract client contact details from construction industry emails. Return only JSON, use null for missing fields, never fabricate data, never extract the contractor themselves as the client.',
-        500,
+        'You extract structured client+contact data from construction industry emails. Return only JSON, null for missing fields, never fabricate data, never extract the contractor themselves.',
+        600,
         'haiku'
       )
-      if (!result || !result.name) return null
+      if (!result?.client?.name) return null
 
       const clean = (v) => {
         if (!v || v === 'null') return ''
@@ -1012,18 +1059,24 @@ Return ONLY a JSON object (no markdown fences, no commentary):
         return String(v).trim()
       }
 
-      let contactEmail = clean(result.contact_email)
-      // Safety net: if AI still returned one of our own addresses, blank it out
+      let contactEmail = clean(result.contact?.email)
       if (contactEmail && isOurAddress(contactEmail)) contactEmail = ''
 
       return {
-        name: clean(result.name),
-        contact_name: clean(result.contact_name),
-        contact_email: contactEmail,
-        contact_phone: clean(result.contact_phone),
-        address: clean(result.address),
-        city: clean(result.city),
-        province: clean(result.province)
+        client: {
+          name: clean(result.client.name),
+          address: clean(result.client.address),
+          city: clean(result.client.city),
+          province: clean(result.client.province),
+          managed_by: clean(result.client.managed_by)
+        },
+        contact: {
+          name: clean(result.contact?.name),
+          title: clean(result.contact?.title),
+          email: contactEmail,
+          phone: clean(result.contact?.phone),
+          works_for: clean(result.contact?.works_for)
+        }
       }
     } catch {
       return null
@@ -1034,50 +1087,63 @@ Return ONLY a JSON object (no markdown fences, no commentary):
     const extracted = email.metadata?.extracted_data || {}
     setCreateJobEmail(email)
     setCreateJobClientId('new')
+    setCreateJobContactId('new')
     setClientCollision(null)
+    setClientContacts([])
 
-    // Seed new-client sub-form from email basics + any pre-extracted data
     const rawFrom = email.from_address || ''
     const emailMatch = rawFrom.match(/<([^>]+)>/)
     const senderEmailAddr = emailMatch ? emailMatch[1].trim() : (rawFrom.includes('@') ? rawFrom.trim() : '')
     const senderClassified = resolveSender(email.from_address)
-    // Don't seed the sender as contact if: we're classified as lead/supplier/internal/etc,
-    // OR if the sender is actually one of our own mailboxes
     const skipSenderAsContact = !!senderClassified || isOurAddress(senderEmailAddr)
-    const seedName = extracted.client_name || (skipSenderAsContact ? '' : email.from_name || '')
 
+    // Seed client sub-form — empty name, let AI fill
     setNewClient({
-      name: seedName,
-      contact_name: skipSenderAsContact ? '' : (email.from_name || ''),
-      contact_email: skipSenderAsContact ? '' : senderEmailAddr,
+      name: extracted.client_name || '',
       billing_email: '',
-      contact_phone: '',
       billing_address_line1: extracted.address || '',
       billing_city: extracted.city || '',
-      billing_province_state: extracted.province_state || ''
+      billing_province_state: extracted.province_state || '',
+      managed_by_name: ''
     })
 
-    // Always run AI extraction for full client details (unless we already have everything)
+    // Seed contact sub-form — sender becomes contact ONLY if not classified/ours
+    setNewContact({
+      name: skipSenderAsContact ? '' : (email.from_name || ''),
+      title: '',
+      email: skipSenderAsContact ? '' : senderEmailAddr,
+      phone: '',
+      works_for: ''
+    })
+
+    // AI extraction — returns {client, contact}
     setCreateJobExtractingClient(true)
     aiExtractClientDetails(email).then(details => {
       setCreateJobExtractingClient(false)
       if (!details) return
-      // Merge: only overwrite fields the user hasn't touched (still equal to seed)
+
       setNewClient(prev => ({
-        name: prev.name === seedName && details.name ? details.name : (prev.name || details.name || ''),
-        contact_name: prev.contact_name || details.contact_name || '',
-        contact_email: prev.contact_email || details.contact_email || '',
+        name: prev.name || details.client.name || '',
         billing_email: prev.billing_email || '',
-        contact_phone: prev.contact_phone || details.contact_phone || '',
-        billing_address_line1: prev.billing_address_line1 || details.address || '',
-        billing_city: prev.billing_city || details.city || '',
-        billing_province_state: prev.billing_province_state || details.province || ''
+        billing_address_line1: prev.billing_address_line1 || details.client.address || '',
+        billing_city: prev.billing_city || details.client.city || '',
+        billing_province_state: prev.billing_province_state || details.client.province || '',
+        managed_by_name: prev.managed_by_name || details.client.managed_by || ''
       }))
-      // Collision check — does a client with this email already exist?
-      const candidateEmail = details.contact_email?.toLowerCase().trim()
-      if (candidateEmail) {
+
+      setNewContact(prev => ({
+        name: prev.name || details.contact.name || '',
+        title: prev.title || details.contact.title || '',
+        email: prev.email || details.contact.email || '',
+        phone: prev.phone || details.contact.phone || '',
+        works_for: prev.works_for || details.contact.works_for || ''
+      }))
+
+      // Collision check — existing client by name (case-insensitive) or contact by email
+      const candidateClientName = details.client.name?.toLowerCase().trim()
+      if (candidateClientName) {
         const existing = clients.find(c =>
-          (c.contact_email || '').toLowerCase().trim() === candidateEmail
+          c.name?.toLowerCase().trim() === candidateClientName
         )
         if (existing) setClientCollision(existing)
       }
@@ -1121,46 +1187,104 @@ Return ONLY a JSON object (no markdown fences, no commentary):
   async function confirmCreateJobFromEmail() {
     if (!createJobEmail) return
     let clientId = createJobClientId
+    let contactId = createJobContactId
 
-    // Explicit "+ Create New Client" path — insert full record, then use returned id
+    // STEP 1: Create client (if new)
     if (clientId === 'new') {
       if (!newClient.name.trim()) { showToast('Please enter a client name'); return }
 
-      const payload = {
+      // Resolve managed_by_name → managed_by_client_id by looking up an existing client
+      let managedById = null
+      const mgrName = newClient.managed_by_name?.trim().toLowerCase()
+      if (mgrName) {
+        const mgr = clients.find(c => c.name?.toLowerCase().trim() === mgrName)
+        if (mgr) managedById = mgr.id
+      }
+
+      const clientPayload = {
         company_id: companyId,
         type: 'commercial',
         name: newClient.name.trim(),
-        contact_name: newClient.contact_name?.trim() || null,
-        contact_email: newClient.contact_email?.trim() || null,
-        contact_phone: newClient.contact_phone?.trim() || null,
+        // Mirror the primary contact's email to the legacy client.contact_email
+        // so old code paths keep working during the transition
+        contact_name: newContact.name?.trim() || null,
+        contact_email: newContact.email?.trim() || null,
+        contact_phone: newContact.phone?.trim() || null,
         billing_email: newClient.billing_email?.trim() || null,
         billing_address_line1: newClient.billing_address_line1?.trim() || null,
         billing_city: newClient.billing_city?.trim() || null,
-        billing_province_state: newClient.billing_province_state?.trim() || null
+        billing_province_state: newClient.billing_province_state?.trim() || null,
+        managed_by_client_id: managedById
       }
 
-      const { data: saved, error: clientErr } = await supabase
-        .from('clients')
-        .insert(payload)
-        .select()
-        .single()
+      const { data: savedClient, error: clientErr } = await supabase
+        .from('clients').insert(clientPayload).select().single()
 
-      if (clientErr || !saved) {
+      if (clientErr || !savedClient) {
         showToast('Failed to create client: ' + (clientErr?.message || 'unknown'))
         console.error(clientErr)
         return
       }
-      clientId = saved.id
-      loadClients()
+      clientId = savedClient.id
     }
 
     if (!clientId || clientId === 'new') { showToast('Please select a client'); return }
+
+    // STEP 2: Create contact (if new) on that client
+    if (contactId === 'new' && newContact.name.trim()) {
+      // Resolve works_for → employer_client_id by name
+      let employerId = null
+      const employerName = newContact.works_for?.trim().toLowerCase()
+      if (employerName) {
+        const emp = clients.find(c => c.name?.toLowerCase().trim() === employerName)
+        if (emp) employerId = emp.id
+      }
+
+      // Only mark is_primary if this client has no contacts yet
+      const { count: existingCount } = await supabase
+        .from('contacts')
+        .select('id', { count: 'exact', head: true })
+        .eq('client_id', clientId)
+        .is('archived_at', null)
+
+      const contactPayload = {
+        company_id: companyId,
+        client_id: clientId,
+        name: newContact.name.trim(),
+        title: newContact.title?.trim() || null,
+        email: newContact.email?.trim() || null,
+        phone: newContact.phone?.trim() || null,
+        employer_client_id: employerId,
+        is_primary: (existingCount || 0) === 0
+      }
+
+      const { data: savedContact, error: contactErr } = await supabase
+        .from('contacts').insert(contactPayload).select().single()
+
+      if (contactErr) {
+        // Non-fatal — log it, job still gets created without contact link
+        console.error('Failed to create contact:', contactErr)
+        contactId = null
+      } else {
+        contactId = savedContact.id
+      }
+    } else if (contactId === 'new' && !newContact.name.trim()) {
+      // User didn't fill contact — that's fine, just don't link one
+      contactId = null
+    } else if (contactId === 'none') {
+      contactId = null
+    }
+
+    // Reload clients list for future use (new client, new managed_by, etc)
+    loadClients()
+
     if (!createJobForm.name.trim()) { showToast('Please enter a job name'); return }
 
     const { data: jobNum } = await supabase.rpc('generate_job_number', { p_company_id: companyId })
     const { data: job, error } = await supabase.from('jobs').insert({
       company_id: companyId, job_number: jobNum || ('JOB-' + Date.now()),
       client_id: clientId,
+      contact_id: contactId || null,
       name: createJobForm.name.trim(),
       description: createJobForm.description.trim(),
       stage: createJobForm.stage || 'lead',
@@ -2499,7 +2623,7 @@ Return ONLY a JSON object (no markdown fences, no commentary):
           {createJobClientId === 'new' && (
             <div className="new-client-subform">
               <div className="new-client-subform-header">
-                <span className="new-client-subform-title">New client details</span>
+                <span className="new-client-subform-title">New client (billable entity)</span>
                 {createJobExtractingClient ? (
                   <span className="new-client-subform-status">
                     <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} />
@@ -2512,16 +2636,15 @@ Return ONLY a JSON object (no markdown fences, no commentary):
                 )}
               </div>
 
-              {/* Collision banner — existing client with matching email */}
+              {/* Collision banner — existing client with matching name */}
               {clientCollision && (
                 <div className="collision-banner">
                   <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--yellow)', marginBottom: 2 }}>
-                      ⚠ Existing client with this email
+                      ⚠ Existing client matches this name
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text2)' }}>
-                      <strong>{clientCollision.name}</strong> already exists with{' '}
-                      <code>{clientCollision.contact_email}</code>
+                      <strong>{clientCollision.name}</strong> already exists
                     </div>
                   </div>
                   <button
@@ -2537,61 +2660,32 @@ Return ONLY a JSON object (no markdown fences, no commentary):
               )}
 
               <div className="form-field">
-                <label className="form-label">Company Name *</label>
+                <label className="form-label">Company / Entity Name *</label>
                 <input
                   className="form-input"
-                  placeholder={createJobExtractingClient ? 'AI is analyzing the email...' : 'Client or company name'}
+                  placeholder={createJobExtractingClient ? 'AI analyzing...' : 'e.g. SDC Symphonia Sol'}
                   value={newClient.name}
                   onChange={e => updateNewClient('name', e.target.value)}
                 />
               </div>
 
-              <div className="form-row">
-                <div className="form-field">
-                  <label className="form-label">Contact Name</label>
-                  <input
-                    className="form-input"
-                    placeholder="Michael Smith"
-                    value={newClient.contact_name}
-                    onChange={e => updateNewClient('contact_name', e.target.value)}
-                  />
-                </div>
-                <div className="form-field">
-                  <label className="form-label">Phone</label>
-                  <input
-                    className="form-input"
-                    placeholder="(514) 555-1234"
-                    value={newClient.contact_phone}
-                    onChange={e => updateNewClient('contact_phone', e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="form-field">
-                <label className="form-label">Email</label>
-                <input
-                  className="form-input"
-                  type="email"
-                  placeholder="contact@company.com"
-                  value={newClient.contact_email}
-                  onChange={e => updateNewClient('contact_email', e.target.value)}
-                />
-              </div>
-
               <div className="form-field">
                 <label className="form-label">
-                  Billing Email
+                  Managed by
                   <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 6, fontWeight: 400 }}>
-                    (if different from contact email)
+                    (property management company, if any)
                   </span>
                 </label>
                 <input
                   className="form-input"
-                  type="email"
-                  placeholder={newClient.contact_email || 'billing@company.com'}
-                  value={newClient.billing_email}
-                  onChange={e => updateNewClient('billing_email', e.target.value)}
+                  placeholder="e.g. Gestior"
+                  value={newClient.managed_by_name}
+                  onChange={e => updateNewClient('managed_by_name', e.target.value)}
+                  list="managed-by-clients"
                 />
+                <datalist id="managed-by-clients">
+                  {clients.map(c => <option key={c.id} value={c.name} />)}
+                </datalist>
               </div>
 
               <div className="form-field">
@@ -2624,6 +2718,118 @@ Return ONLY a JSON object (no markdown fences, no commentary):
                     onChange={e => updateNewClient('billing_province_state', e.target.value.toUpperCase())}
                   />
                 </div>
+              </div>
+
+              <div className="form-field">
+                <label className="form-label">
+                  Billing Email
+                  <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 6, fontWeight: 400 }}>
+                    (where invoices get sent)
+                  </span>
+                </label>
+                <input
+                  className="form-input"
+                  type="email"
+                  placeholder="billing@company.com"
+                  value={newClient.billing_email}
+                  onChange={e => updateNewClient('billing_email', e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* CONTACT SECTION — always shown (regardless of new/existing client) */}
+          <div className="form-field" style={{ marginTop: 8 }}>
+            <label className="form-label">Contact (person)</label>
+            <select
+              className="form-input"
+              value={createJobContactId}
+              onChange={e => setCreateJobContactId(e.target.value)}
+              disabled={createJobClientId !== 'new' && clientContacts.length === 0}
+            >
+              <option value="new">+ Create New Contact</option>
+              {clientContacts.length > 0 && <option disabled>──────────</option>}
+              {clientContacts.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name}{c.title ? ` · ${c.title}` : ''}{c.is_primary ? ' ★' : ''}
+                </option>
+              ))}
+              <option value="none">— No contact for this job —</option>
+            </select>
+          </div>
+
+          {createJobContactId === 'new' && (
+            <div className="new-client-subform" style={{ borderColor: 'rgba(139, 92, 246, 0.2)', background: 'rgba(139, 92, 246, 0.03)' }}>
+              <div className="new-client-subform-header" style={{ borderBottomColor: 'rgba(139, 92, 246, 0.2)' }}>
+                <span className="new-client-subform-title" style={{ color: '#8B5CF6' }}>New contact details</span>
+                {createJobExtractingClient && (
+                  <span className="new-client-subform-status" style={{ color: '#8B5CF6' }}>
+                    <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} />
+                    Extracting...
+                  </span>
+                )}
+              </div>
+
+              <div className="form-row">
+                <div className="form-field">
+                  <label className="form-label">Contact Name</label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. Chantal Monette"
+                    value={newContact.name}
+                    onChange={e => updateNewContact('name', e.target.value)}
+                  />
+                </div>
+                <div className="form-field">
+                  <label className="form-label">Title</label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. Property Manager"
+                    value={newContact.title}
+                    onChange={e => updateNewContact('title', e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-field">
+                  <label className="form-label">Email</label>
+                  <input
+                    className="form-input"
+                    type="email"
+                    placeholder="chantal@gestior.com"
+                    value={newContact.email}
+                    onChange={e => updateNewContact('email', e.target.value)}
+                  />
+                </div>
+                <div className="form-field">
+                  <label className="form-label">Phone</label>
+                  <input
+                    className="form-input"
+                    placeholder="(514) 555-1234"
+                    value={newContact.phone}
+                    onChange={e => updateNewContact('phone', e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="form-field">
+                <label className="form-label">
+                  Works for
+                  <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 6, fontWeight: 400 }}>
+                    (employer company, if different from client)
+                  </span>
+                </label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. Gestior"
+                  value={newContact.works_for}
+                  onChange={e => updateNewContact('works_for', e.target.value)}
+                  list="works-for-clients"
+                />
+                <datalist id="works-for-clients">
+                  {clients.map(c => <option key={c.id} value={c.name} />)}
+                </datalist>
               </div>
             </div>
           )}
