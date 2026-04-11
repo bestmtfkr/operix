@@ -142,6 +142,32 @@
   margin-bottom: 2px;
 }
 
+/* Clickable collapsible section header */
+.sidebar-label-collapsible {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 4px;
+  background: transparent;
+  border: none;
+  color: var(--text3);
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 4px;
+  transition: color 0.1s, background 0.1s;
+}
+.sidebar-label-collapsible:hover {
+  color: var(--text2);
+  background: var(--card);
+}
+.sidebar-label-collapsible > span:first-child {
+  font-size: 8px;
+  width: 10px;
+  flex-shrink: 0;
+}
+
 .sidebar-btn {
   display: flex;
   align-items: center;
@@ -212,6 +238,20 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+}
+
+/* Compact variant for the FOLDERS section — denser than the main views */
+.mailbox-list-compact {
+  gap: 1px;
+}
+.mailbox-row-compact {
+  padding: 5px 10px;
+  font-size: 11px;
+  gap: 8px;
+}
+.mailbox-row-compact .mailbox-icon {
+  font-size: 11px;
+  width: 12px;
 }
 .mailbox-row {
   display: flex;

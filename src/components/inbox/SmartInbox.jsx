@@ -86,10 +86,12 @@ export default function SmartInbox() {
   const [selectedView, setSelectedView] = useState('inbox') // 'inbox' | 'assigned' | 'archived'
 
   // Folders — sent/drafts/spam/trash. null = default inbox (no folder filter).
-  // The `folder` column on inbox_emails doesn't exist until migration 3.2.2 runs,
-  // so buildQuery guards filter application behind this feature flag.
   const [selectedFolder, setSelectedFolder] = useState(null) // null | 'sent' | 'drafts' | 'spam' | 'trash'
-  const FOLDERS_ENABLED = true // Flip to false if the column isn't in the DB yet
+  const FOLDERS_ENABLED = true
+
+  // Collapsible sidebar sections (INBOXES default open, FOLDERS default closed)
+  const [inboxesOpen, setInboxesOpen] = useState(true)
+  const [foldersOpen, setFoldersOpen] = useState(false)
 
   // Bulk selection for the new toolbar
   const [selectedEmails, setSelectedEmails] = useState(new Set())
@@ -1965,75 +1967,93 @@ Only return valid JSON.`, 256, 'haiku'
           </div>
         </div>
 
-        {/* FOLDERS — standard email folders (sent/drafts/spam/trash) */}
+        {/* INBOXES — collapsible (default open) */}
         <div className="sidebar-section">
-          <div className="sidebar-label">Folders</div>
-          <div className="mailbox-list">
-            {[
-              { id: 'sent', label: 'Sent', icon: '📤' },
-              { id: 'drafts', label: 'Drafts', icon: '📝' },
-              { id: 'spam', label: 'Spam / Junk', icon: '🛑' },
-              { id: 'trash', label: 'Trash', icon: '🗑' }
-            ].map(f => {
-              const active = selectedFolder === f.id
-              return (
-                <button
-                  key={f.id}
-                  onClick={() => {
-                    setSelectedFolder(f.id)
-                    setSelectedView('inbox') // folders are scoped within inbox view
-                  }}
-                  className={`mailbox-row ${active ? 'active' : ''}`}
-                >
-                  <span className="mailbox-icon">{f.icon}</span>
-                  <span className="mailbox-label">{f.label}</span>
-                </button>
-              )
-            })}
-          </div>
+          <button
+            className="sidebar-label sidebar-label-collapsible"
+            onClick={() => setInboxesOpen(o => !o)}
+            type="button"
+          >
+            <span>{inboxesOpen ? '▼' : '▶'}</span>
+            <span>Inboxes</span>
+          </button>
+          {inboxesOpen && (
+            <div className="mailbox-list">
+              {connectedAccounts
+                // Hide the Unified row when there's only one real mailbox
+                .filter(a => a.type !== 'unified' || mailboxes.length > 1)
+                .map(acct => {
+                  const active = selectedView === 'inbox' && !selectedFolder && selectedAccountId === acct.id
+                  const isUnified = acct.type === 'unified'
+                  return (
+                    <button
+                      key={acct.id}
+                      onClick={() => { setSelectedView('inbox'); setSelectedFolder(null); setSelectedAccountId(acct.id) }}
+                      className={`mailbox-row ${active ? 'active' : ''}`}
+                      title={isUnified ? 'All accounts' : acct.email}
+                    >
+                      {isUnified ? (
+                        <span className="mailbox-icon">{acct.icon}</span>
+                      ) : (
+                        <span className="mailbox-dot" style={{ background: acct.color }} />
+                      )}
+                      <span className="mailbox-label">
+                        {isUnified ? 'Unified Inbox' : acct.email}
+                      </span>
+                    </button>
+                  )
+                })}
+              {mailboxes.length === 0 && (
+                <div style={{ padding: '10px 12px', fontSize: 11, color: 'var(--text3)' }}>
+                  No mailboxes connected. Use "Connect Gmail" below.
+                </div>
+              )}
+              <button
+                onClick={() => connectGmail('add')}
+                className="mailbox-row add-row"
+              >
+                <span className="mailbox-icon">＋</span>
+                <span className="mailbox-label">Add Gmail account</span>
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* INBOXES — real mailboxes from DB */}
+        {/* FOLDERS — collapsible (default closed), compact rows */}
         <div className="sidebar-section">
-          <div className="sidebar-label">Inboxes</div>
-          <div className="mailbox-list">
-            {connectedAccounts
-              // Hide the Unified row when there's only one real mailbox
-              .filter(a => a.type !== 'unified' || mailboxes.length > 1)
-              .map(acct => {
-                const active = selectedView === 'inbox' && !selectedFolder && selectedAccountId === acct.id
-                const isUnified = acct.type === 'unified'
+          <button
+            className="sidebar-label sidebar-label-collapsible"
+            onClick={() => setFoldersOpen(o => !o)}
+            type="button"
+          >
+            <span>{foldersOpen ? '▼' : '▶'}</span>
+            <span>Folders</span>
+          </button>
+          {foldersOpen && (
+            <div className="mailbox-list mailbox-list-compact">
+              {[
+                { id: 'sent', label: 'Sent', icon: '📤' },
+                { id: 'drafts', label: 'Drafts', icon: '📝' },
+                { id: 'spam', label: 'Spam / Junk', icon: '🛑' },
+                { id: 'trash', label: 'Trash', icon: '🗑' }
+              ].map(f => {
+                const active = selectedFolder === f.id
                 return (
                   <button
-                    key={acct.id}
-                    onClick={() => { setSelectedView('inbox'); setSelectedFolder(null); setSelectedAccountId(acct.id) }}
-                    className={`mailbox-row ${active ? 'active' : ''}`}
-                    title={isUnified ? 'All accounts' : acct.email}
+                    key={f.id}
+                    onClick={() => {
+                      setSelectedFolder(f.id)
+                      setSelectedView('inbox') // folders are scoped within inbox view
+                    }}
+                    className={`mailbox-row mailbox-row-compact ${active ? 'active' : ''}`}
                   >
-                    {isUnified ? (
-                      <span className="mailbox-icon">{acct.icon}</span>
-                    ) : (
-                      <span className="mailbox-dot" style={{ background: acct.color }} />
-                    )}
-                    <span className="mailbox-label">
-                      {isUnified ? 'Unified Inbox' : acct.email}
-                    </span>
+                    <span className="mailbox-icon">{f.icon}</span>
+                    <span className="mailbox-label">{f.label}</span>
                   </button>
                 )
               })}
-            {mailboxes.length === 0 && (
-              <div style={{ padding: '10px 12px', fontSize: 11, color: 'var(--text3)' }}>
-                No mailboxes connected. Use "Connect Gmail" below.
-              </div>
-            )}
-            <button
-              onClick={() => connectGmail('add')}
-              className="mailbox-row add-row"
-            >
-              <span className="mailbox-icon">＋</span>
-              <span className="mailbox-label">Add Gmail account</span>
-            </button>
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Gmail actions — apply to the currently-selected account */}
