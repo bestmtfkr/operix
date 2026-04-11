@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../shared/Toast'
 
-export default function QuickBooksSettings() {
+export default function QuickBooksSettings({ settings, updateSettings, onSaveSettings }) {
   const { companyId } = useAuth()
   const showToast = useToast()
   const [loading, setLoading] = useState(true)
@@ -14,6 +14,7 @@ export default function QuickBooksSettings() {
   const [taxCodes, setTaxCodes] = useState([])
   const [loadingTaxCodes, setLoadingTaxCodes] = useState(false)
   const [savingMapping, setSavingMapping] = useState(false)
+  const [savingBilling, setSavingBilling] = useState(false)
 
   useEffect(() => { if (companyId) load() }, [companyId])
 
@@ -127,12 +128,111 @@ export default function QuickBooksSettings() {
 
   const isConnected = !!tokens?.access_token
 
+  async function saveBilling() {
+    if (!onSaveSettings) return
+    setSavingBilling(true)
+    await onSaveSettings()
+    setSavingBilling(false)
+    showToast('Billing settings saved')
+  }
+
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 16, padding: 20 }}>
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>📊 QuickBooks Online</div>
+    <div id="billing-settings" style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 16, padding: 20 }}>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>💰 Billing & QuickBooks</div>
         <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-          Push invoices to QuickBooks as drafts. Payments auto-sync back into Operix.
+          Taxes, invoice numbering, and QuickBooks Online sync.
+        </div>
+      </div>
+
+      {/* TAX SETTINGS */}
+      {settings && updateSettings && <>
+        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+          Default Taxes
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 12 }}>
+          Based on your company province. Individual invoices can override per-job.
+        </div>
+        <div className="form-row">
+          <div className="form-field">
+            <label className="form-label">Tax 1 Label</label>
+            <input className="form-input" placeholder="e.g. HST, GST"
+              value={settings.tax_label_1 || ''} onChange={e => updateSettings('tax_label_1', e.target.value)} />
+          </div>
+          <div className="form-field">
+            <label className="form-label">Tax 1 Rate (%)</label>
+            <input className="form-input" type="number" step="0.01"
+              value={settings.tax_rate_1 ? (settings.tax_rate_1 * 100).toFixed(2) : ''}
+              onChange={e => updateSettings('tax_rate_1', parseFloat(e.target.value) / 100 || 0)} />
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-field">
+            <label className="form-label">Tax 2 Label (optional)</label>
+            <input className="form-input" placeholder="e.g. PST, QST"
+              value={settings.tax_label_2 || ''} onChange={e => updateSettings('tax_label_2', e.target.value || null)} />
+          </div>
+          <div className="form-field">
+            <label className="form-label">Tax 2 Rate (%)</label>
+            <input className="form-input" type="number" step="0.01"
+              value={settings.tax_rate_2 ? (settings.tax_rate_2 * 100).toFixed(3) : ''}
+              onChange={e => updateSettings('tax_rate_2', parseFloat(e.target.value) / 100 || null)} />
+          </div>
+        </div>
+        <div className="form-field">
+          <label className="form-label">Tax Registration #</label>
+          <input className="form-input" placeholder="GST/HST number"
+            value={settings.tax_registration_number || ''} onChange={e => updateSettings('tax_registration_number', e.target.value)} />
+        </div>
+
+        {/* INVOICE NUMBERING + TERMS */}
+        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 1, marginTop: 20, marginBottom: 10 }}>
+          Invoice Numbering & Terms
+        </div>
+        <div className="form-row">
+          <div className="form-field">
+            <label className="form-label">Invoice Prefix</label>
+            <input className="form-input" placeholder="INV"
+              value={settings.invoice_prefix || ''} onChange={e => updateSettings('invoice_prefix', e.target.value)} />
+          </div>
+          <div className="form-field">
+            <label className="form-label">Next Invoice #</label>
+            <input className="form-input" type="number"
+              value={settings.invoice_next_number || ''} onChange={e => updateSettings('invoice_next_number', parseInt(e.target.value) || 1001)} />
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-field">
+            <label className="form-label">Payment Terms (days)</label>
+            <input className="form-input" type="number"
+              value={settings.default_payment_terms_days || ''} onChange={e => updateSettings('default_payment_terms_days', parseInt(e.target.value) || 30)} />
+          </div>
+          <div className="form-field">
+            <label className="form-label">Currency</label>
+            <select className="form-input" value={settings.currency || 'CAD'} onChange={e => updateSettings('currency', e.target.value)}>
+              <option value="CAD">CAD</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
+        </div>
+
+        <button
+          className="btn btn-primary btn-full"
+          style={{ marginTop: 12, marginBottom: 24 }}
+          onClick={saveBilling}
+          disabled={savingBilling}
+        >
+          {savingBilling ? 'Saving...' : 'Save billing settings'}
+        </button>
+      </>}
+
+      {/* QBO SECTION */}
+      <div style={{ marginTop: 8, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 2 }}>📊 QuickBooks Online</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+            Push invoices to QuickBooks as drafts. Payments auto-sync back.
+          </div>
         </div>
       </div>
 

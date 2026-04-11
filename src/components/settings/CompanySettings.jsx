@@ -99,20 +99,28 @@ export default function CompanySettings({ onNavigate }) {
       <div style={{ padding: 16 }}>
         {/* Quick Links */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-          <div className="card" style={{ flex: 1, textAlign: 'center', padding: 14 }}
+          <div className="card" style={{ flex: 1, textAlign: 'center', padding: 14, cursor: 'pointer' }}
             onClick={() => onNavigate && onNavigate('reports')}>
             <div style={{ fontSize: 24, marginBottom: 4 }}>📊</div>
             <div style={{ fontSize: 12, fontWeight: 700 }}>Reports</div>
           </div>
-          <div className="card" style={{ flex: 1, textAlign: 'center', padding: 14, opacity: 0.4, cursor: 'default' }}>
-            <div style={{ fontSize: 24, marginBottom: 4 }}>📚</div>
-            <div style={{ fontSize: 12, fontWeight: 700 }}>QuickBooks</div>
-            <div style={{ fontSize: 9, color: 'var(--text3)', marginTop: 2 }}>Coming soon</div>
+          <div
+            className="card"
+            style={{ flex: 1, textAlign: 'center', padding: 14, cursor: 'pointer' }}
+            onClick={() => document.getElementById('billing-settings')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          >
+            <div style={{ fontSize: 24, marginBottom: 4 }}>💰</div>
+            <div style={{ fontSize: 12, fontWeight: 700 }}>Billing</div>
+            <div style={{ fontSize: 9, color: 'var(--text3)', marginTop: 2 }}>Taxes & QBO</div>
           </div>
-          <div className="card" style={{ flex: 1, textAlign: 'center', padding: 14, opacity: 0.4, cursor: 'default' }}>
+          <div
+            className="card"
+            style={{ flex: 1, textAlign: 'center', padding: 14, cursor: 'pointer' }}
+            onClick={() => onNavigate && onNavigate('inbox')}
+          >
             <div style={{ fontSize: 24, marginBottom: 4 }}>📬</div>
             <div style={{ fontSize: 12, fontWeight: 700 }}>Email</div>
-            <div style={{ fontSize: 9, color: 'var(--text3)', marginTop: 2 }}>Coming soon</div>
+            <div style={{ fontSize: 9, color: 'var(--text3)', marginTop: 2 }}>Go to inbox</div>
           </div>
         </div>
 
@@ -155,77 +163,18 @@ export default function CompanySettings({ onNavigate }) {
           </div>
         </div>
 
-        {/* Tax Settings */}
-        <div className="sec-hdr" style={{ marginTop: 24 }}><div className="sec-title">Tax Settings</div></div>
-
-        <div className="form-row">
-          <div className="form-field">
-            <label className="form-label">Tax 1 Label</label>
-            <input className="form-input" placeholder="e.g. HST, GST"
-              value={settings.tax_label_1 || ''} onChange={e => updateSettings('tax_label_1', e.target.value)} />
-          </div>
-          <div className="form-field">
-            <label className="form-label">Tax 1 Rate (%)</label>
-            <input className="form-input" type="number" step="0.01"
-              value={settings.tax_rate_1 ? (settings.tax_rate_1 * 100).toFixed(2) : ''}
-              onChange={e => updateSettings('tax_rate_1', parseFloat(e.target.value) / 100 || 0)} />
-          </div>
-        </div>
-
-        <div className="form-row">
-          <div className="form-field">
-            <label className="form-label">Tax 2 Label (optional)</label>
-            <input className="form-input" placeholder="e.g. PST, QST"
-              value={settings.tax_label_2 || ''} onChange={e => updateSettings('tax_label_2', e.target.value || null)} />
-          </div>
-          <div className="form-field">
-            <label className="form-label">Tax 2 Rate (%)</label>
-            <input className="form-input" type="number" step="0.01"
-              value={settings.tax_rate_2 ? (settings.tax_rate_2 * 100).toFixed(3) : ''}
-              onChange={e => updateSettings('tax_rate_2', parseFloat(e.target.value) / 100 || null)} />
-          </div>
-        </div>
-
-        <div className="form-field">
-          <label className="form-label">Tax Registration #</label>
-          <input className="form-input" placeholder="GST/HST number"
-            value={settings.tax_registration_number || ''} onChange={e => updateSettings('tax_registration_number', e.target.value)} />
-        </div>
-
-        {/* Invoice Settings */}
-        <div className="sec-hdr" style={{ marginTop: 24 }}><div className="sec-title">Invoice Settings</div></div>
-
-        <div className="form-row">
-          <div className="form-field">
-            <label className="form-label">Invoice Prefix</label>
-            <input className="form-input" placeholder="INV"
-              value={settings.invoice_prefix || ''} onChange={e => updateSettings('invoice_prefix', e.target.value)} />
-          </div>
-          <div className="form-field">
-            <label className="form-label">Next Invoice #</label>
-            <input className="form-input" type="number"
-              value={settings.invoice_next_number || ''} onChange={e => updateSettings('invoice_next_number', parseInt(e.target.value) || 1001)} />
-          </div>
-        </div>
-
-        <div className="form-row">
-          <div className="form-field">
-            <label className="form-label">Payment Terms (days)</label>
-            <input className="form-input" type="number"
-              value={settings.default_payment_terms_days || ''} onChange={e => updateSettings('default_payment_terms_days', parseInt(e.target.value) || 30)} />
-          </div>
-          <div className="form-field">
-            <label className="form-label">Currency</label>
-            <select className="form-input" value={settings.currency || 'CAD'} onChange={e => updateSettings('currency', e.target.value)}>
-              <option value="CAD">CAD</option>
-              <option value="USD">USD</option>
-            </select>
-          </div>
-        </div>
-
-        <button className="btn btn-primary btn-full" style={{ marginTop: 24 }} onClick={save} disabled={saving}>
-          {saving ? 'Saving...' : 'Save Settings'}
+        <button className="btn btn-primary btn-full" style={{ marginTop: 16 }} onClick={save} disabled={saving}>
+          {saving ? 'Saving...' : 'Save Company Info'}
         </button>
+
+        {/* Billing & QuickBooks — taxes, invoice numbering, QBO sync */}
+        <div style={{ marginTop: 24 }}>
+          <QuickBooksSettings
+            settings={settings}
+            updateSettings={updateSettings}
+            onSaveSettings={save}
+          />
+        </div>
 
         {/* Email Settings */}
         <div style={{ marginTop: 24 }}>
@@ -233,11 +182,6 @@ export default function CompanySettings({ onNavigate }) {
             await supabase.from('companies').update({ settings: updated }).eq('id', companyId)
             setSettings(updated)
           }} />
-        </div>
-
-        {/* QuickBooks */}
-        <div style={{ marginTop: 24 }}>
-          <QuickBooksSettings />
         </div>
 
         {/* Pipeline Settings */}
