@@ -48,6 +48,26 @@ export default function SmartInbox() {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
   const [headerExpanded, setHeaderExpanded] = useState(false)
 
+  // ─── MOCK multi-account state (UI only — no backend filtering yet) ────────
+  // TODO: replace with real `mailboxes` table once Phase 1 of multi-account ships
+  const [connectedAccounts] = useState([
+    { id: 'unified', type: 'unified', label: 'Unified Inbox', color: null, icon: '📬' },
+    { id: 'mock-1', type: 'gmail', email: 'construction@groupeatmospec.com', color: '#00D4A0', unread: 12 },
+    { id: 'mock-2', type: 'gmail', email: 'anthony@operix.com', color: '#2196F3', unread: 3 },
+    { id: 'mock-3', type: 'gmail', email: 'sales@atmospec.ca', color: '#FF6B35', unread: 0 }
+  ])
+  const [selectedAccountId, setSelectedAccountId] = useState('unified')
+  const selectedAccount = connectedAccounts.find(a => a.id === selectedAccountId)
+  const isUnifiedView = selectedAccountId === 'unified'
+  // For unified view, deterministically tag each email with a mock account so we can render the dot
+  function mockAccountForEmail(email) {
+    const accts = connectedAccounts.filter(a => a.id !== 'unified')
+    if (accts.length === 0) return null
+    // Deterministic hash from email id → account index
+    const hash = (email.id || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0)
+    return accts[hash % accts.length]
+  }
+
   useEffect(() => {
     function onResize() { setIsDesktop(window.innerWidth >= 900) }
     window.addEventListener('resize', onResize)
@@ -1298,11 +1318,28 @@ Only return valid JSON.`, 256, 'haiku'
     <div className="inbox-shell">
       {/* LEFT — email list column */}
       <div className="inbox-main">
-        {/* Top bar — title + tabs */}
+        {/* Top bar — title reflects selected account */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>Inbox</div>
-            <div style={{ fontSize: 11, color: 'var(--text3)' }}>{totalEmails.toLocaleString()} emails{gmailConnected ? ` • 📧 ${gmailEmail}` : ''}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            {isUnifiedView ? (
+              <span style={{ fontSize: 20 }}>📬</span>
+            ) : (
+              <span style={{
+                width: 10, height: 10, borderRadius: '50%',
+                background: selectedAccount?.color || 'var(--text3)',
+                flexShrink: 0
+              }} />
+            )}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {isUnifiedView ? 'Unified Inbox' : (selectedAccount?.email || 'Inbox')}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+                {isUnifiedView
+                  ? `${totalEmails.toLocaleString()} emails • ${connectedAccounts.length - 1} accounts`
+                  : `${totalEmails.toLocaleString()} emails`}
+              </div>
+            </div>
           </div>
           {!gmailConnected && <button onClick={connectGmail} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600, border: '1px solid rgba(0,212,160,0.2)', background: 'transparent', color: 'var(--primary)', cursor: 'pointer', fontFamily: 'DM Sans' }}>📧 Connect Gmail</button>}
         </div>
@@ -1422,10 +1459,21 @@ Only return valid JSON.`, 256, 'haiku'
           const isLinked = email.metadata?.linked_job_id
           const linkedJob = isLinked ? jobs.find(j => j.id === isLinked) : null
           const init = (email.from_name || email.from_address || '?').charAt(0).toUpperCase()
+          // Mock: assign each email a pseudo-account so we can show the dot in unified view
+          const emailAccount = isUnifiedView ? mockAccountForEmail(email) : null
 
           return (
             <div key={email.id} className={`email-row ${email.status === 'unread' ? 'unread' : ''} ${showDetail?.id === email.id ? 'selected' : ''}`} onClick={() => openEmail(email)}>
-              <div className="email-av" style={{ background: avColors[cat] || '#00D4A0' }}>{init}</div>
+              <div className="email-av-wrap">
+                <div className="email-av" style={{ background: avColors[cat] || '#00D4A0' }}>{init}</div>
+                {emailAccount && (
+                  <span
+                    className="email-av-account-dot"
+                    style={{ background: emailAccount.color }}
+                    title={emailAccount.email}
+                  />
+                )}
+              </div>
               <div className="email-body-wrap">
                 <div className="email-from">{sortMode === 'address' ? (email.metadata?.extracted_data?.address || email.subject) : (email.from_name || email.from_address || 'Unknown')}</div>
                 <div className="email-subj">{email.subject}</div>
@@ -1473,10 +1521,48 @@ Only return valid JSON.`, 256, 'haiku'
           <span>Compose</span>
         </button>
 
-        {/* Gmail actions */}
-        {gmailConnected && (
+        {/* INBOXES — multi-account switcher (mocked for now) */}
+        <div className="sidebar-section">
+          <div className="sidebar-label">Inboxes</div>
+          <div className="mailbox-list">
+            {connectedAccounts.map(acct => {
+              const active = selectedAccountId === acct.id
+              const isUnified = acct.type === 'unified'
+              return (
+                <button
+                  key={acct.id}
+                  onClick={() => setSelectedAccountId(acct.id)}
+                  className={`mailbox-row ${active ? 'active' : ''}`}
+                  title={isUnified ? 'All accounts' : acct.email}
+                >
+                  {isUnified ? (
+                    <span className="mailbox-icon">{acct.icon}</span>
+                  ) : (
+                    <span className="mailbox-dot" style={{ background: acct.color }} />
+                  )}
+                  <span className="mailbox-label">
+                    {isUnified ? acct.label : acct.email}
+                  </span>
+                  {acct.unread > 0 && (
+                    <span className="mailbox-badge">{acct.unread}</span>
+                  )}
+                </button>
+              )
+            })}
+            <button
+              onClick={() => showToast('Add account flow coming soon')}
+              className="mailbox-row add-row"
+            >
+              <span className="mailbox-icon">＋</span>
+              <span className="mailbox-label">Add account</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Gmail actions — apply to the currently-selected account */}
+        {gmailConnected && !isUnifiedView && (
           <div className="sidebar-section">
-            <div className="sidebar-label">Gmail</div>
+            <div className="sidebar-label">Account actions</div>
             <button onClick={() => fetchGmailEmails(false)} disabled={syncing} className="sidebar-btn">
               {syncing ? '⏳ Syncing...' : '🔄 Sync now'}
             </button>

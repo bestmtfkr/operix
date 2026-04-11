@@ -207,6 +207,77 @@
   color: var(--primary);
 }
 
+/* Mailbox switcher (INBOXES section) */
+.mailbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mailbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  text-align: left;
+  transition: background 0.1s, border-color 0.1s;
+  min-width: 0;
+}
+.mailbox-row:hover {
+  background: var(--card);
+}
+.mailbox-row.active {
+  background: rgba(0,212,160,0.1);
+  border-color: rgba(0,212,160,0.3);
+  color: var(--text);
+}
+.mailbox-row .mailbox-dot {
+  width: 10px;
+  height: 10px;
+  min-width: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.mailbox-row .mailbox-icon {
+  font-size: 14px;
+  width: 14px;
+  display: inline-flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.mailbox-row .mailbox-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.mailbox-row .mailbox-badge {
+  background: var(--primary);
+  color: #000;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 7px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.mailbox-row.add-row {
+  color: var(--text3);
+  border-style: dashed;
+  margin-top: 4px;
+}
+.mailbox-row.add-row:hover {
+  color: var(--text2);
+}
+
 /* Mobile: hide desktop sidebar/preview, use inline mobile bar */
 @media (max-width: 900px) {
   .inbox-shell {
@@ -274,6 +345,12 @@
   background: var(--primary);
 }
 
+.email-av-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+}
 .email-av {
   width: 40px;
   height: 40px;
@@ -289,6 +366,30 @@
   font-weight: 700;
   flex-shrink: 0;
   color: #fff;
+}
+.email-av-account-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+@media (min-width: 901px) {
+  .email-av-wrap {
+    width: 32px;
+    height: 32px;
+  }
+  .email-av-account-dot {
+    width: 11px;
+    height: 11px;
+    right: -1px;
+    bottom: -1px;
+    border-width: 2px;
+  }
 }
 
 .email-body-wrap {
