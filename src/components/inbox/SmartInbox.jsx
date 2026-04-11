@@ -122,25 +122,47 @@ export default function SmartInbox() {
     if (companyId) { loadJobs(); loadClients(); checkGmail(); loadTeamAndConfig() }
   }, [companyId])
 
-  // Auto-sync all active mailboxes every 2 minutes.
-  // Waits 8s before first sync so the initial email list renders first.
-  // Rate-limits to 3 concurrent fetches to avoid Gmail 429s.
+  // Auto-sync all active mailboxes.
+  // Hot folders (inbox + sent) every 2 min.
+  // Spam every 30 min.
+  // Trash is on-demand only (user-initiated).
+  // Rate-limited to 3 concurrent Gmail fetches to avoid 429s.
   useEffect(() => {
     if (!companyId || mailboxes.length === 0) return
-    const doSync = async () => {
-      const queue = [...mailboxes]
-      const concurrency = 3
+
+    async function runWorkers(queue, concurrency = 3) {
       const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
         while (queue.length) {
-          const mb = queue.shift()
-          if (mb) await fetchMailboxEmails(mb.id, true)
+          const job = queue.shift()
+          if (job) await fetchMailboxEmails(job.mailboxId, true, job.folder)
         }
       })
       await Promise.all(workers)
     }
-    const firstSync = setTimeout(doSync, 8000)
-    const interval = setInterval(doSync, 2 * 60 * 1000)
-    return () => { clearTimeout(firstSync); clearInterval(interval) }
+
+    const syncHot = async () => {
+      const queue = []
+      for (const mb of mailboxes) {
+        queue.push({ mailboxId: mb.id, folder: 'inbox' })
+        queue.push({ mailboxId: mb.id, folder: 'sent' })
+      }
+      await runWorkers(queue, 3)
+    }
+
+    const syncSpam = async () => {
+      const queue = mailboxes.map(mb => ({ mailboxId: mb.id, folder: 'spam' }))
+      await runWorkers(queue, 2)
+    }
+
+    const firstHot = setTimeout(syncHot, 8000)
+    const hotInterval = setInterval(syncHot, 2 * 60 * 1000)
+    const spamInterval = setInterval(syncSpam, 30 * 60 * 1000)
+
+    return () => {
+      clearTimeout(firstHot)
+      clearInterval(hotInterval)
+      clearInterval(spamInterval)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId, mailboxes.length])
 
@@ -186,15 +208,16 @@ export default function SmartInbox() {
     if (!w) showToast('Popup blocked — allow popups for this site')
   }
 
-  // Fetch newest emails for a SPECIFIC mailbox and insert into inbox_emails.
+  // Fetch newest emails for a SPECIFIC mailbox + folder and insert into inbox_emails.
   // Returns the number of new emails saved.
-  async function fetchMailboxEmails(mailboxId, silent = false) {
+  async function fetchMailboxEmails(mailboxId, silent = false, folder = 'inbox') {
     try {
-      // Find the newest email we already have for this mailbox — only fetch after that
+      // Find the newest email we already have for this (mailbox, folder) combo
       const { data: newest } = await supabase
         .from('inbox_emails')
         .select('metadata')
         .eq('mailbox_id', mailboxId)
+        .eq('folder', folder)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
@@ -206,7 +229,7 @@ export default function SmartInbox() {
       const res = await fetch('/.netlify/functions/gmail-fetch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mailbox_id: mailboxId, max_results: 100, after_date: afterDate })
+        body: JSON.stringify({ mailbox_id: mailboxId, max_results: 100, after_date: afterDate, folder })
       })
       const data = await res.json()
       if (data.error) {
@@ -214,11 +237,12 @@ export default function SmartInbox() {
         return 0
       }
 
-      // Skip duplicates already in this mailbox
+      // Skip duplicates already in this (mailbox, folder)
       const { data: existing } = await supabase
         .from('inbox_emails')
         .select('metadata')
         .eq('mailbox_id', mailboxId)
+        .eq('folder', folder)
         .order('created_at', { ascending: false })
         .limit(500)
       const existingIds = new Set((existing || []).map(e => e.metadata?.gmail_id).filter(Boolean))
@@ -257,6 +281,7 @@ export default function SmartInbox() {
         const { data: savedEmail, error } = await supabase.from('inbox_emails').insert({
           company_id: companyId,
           mailbox_id: mailboxId,
+          folder: folder,
           from_address: email.from,
           from_name: quick?.from_name || email.from.split('<')[0].trim(),
           subject: email.subject,
@@ -1021,6 +1046,48 @@ Only return valid JSON.`, 256, 'haiku'
     showToast('Deleted'); setShowDetail(null); loadEmails()
   }
 
+  // Move email to a different folder. Calls gmail-move-folder which
+  // updates both the local row AND the Gmail labels bidirectionally.
+  async function moveEmailToFolder(id, targetFolder) {
+    const email = emails.find(e => e.id === id) || showDetail
+    try {
+      const res = await fetch('/.netlify/functions/gmail-move-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: companyId,
+          mailbox_id: email?.mailbox_id || null,
+          email_id: id,
+          gmail_id: email?.metadata?.gmail_id || null,
+          target_folder: targetFolder
+        })
+      })
+      const data = await res.json()
+      if (data.error) {
+        showToast('Failed: ' + data.error)
+        return false
+      }
+      // Optimistically remove from current list
+      setEmails(prev => prev.filter(e => e.id !== id))
+      if (showDetail?.id === id) setShowDetail(null)
+      return true
+    } catch (err) {
+      showToast('Move failed: ' + err.message)
+      return false
+    }
+  }
+
+  async function bulkMoveSelected(targetFolder) {
+    if (selectedEmails.size === 0) return
+    const ids = Array.from(selectedEmails)
+    const label = targetFolder === 'trash' ? 'Trashed' : targetFolder === 'spam' ? 'Marked as spam' : 'Moved'
+    showToast(`${label} ${ids.length}...`)
+    for (const id of ids) {
+      await moveEmailToFolder(id, targetFolder)
+    }
+    clearSelection()
+  }
+
   // Archive — dedicated state separate from "actioned" (linked to job)
   async function archiveEmail(id) {
     await supabase.from('inbox_emails')
@@ -1659,7 +1726,8 @@ Only return valid JSON.`, 256, 'haiku'
               <span className="toolbar-count">{selectedEmails.size} selected</span>
               <button className="toolbar-btn" onClick={bulkArchiveSelected} title="Archive">📥 Archive</button>
               <button className="toolbar-btn" onClick={() => showToast('Assign coming soon')} title="Assign">👤 Assign</button>
-              <button className="toolbar-btn danger" onClick={() => showToast('Trash coming soon')} title="Trash">🗑 Trash</button>
+              <button className="toolbar-btn" onClick={() => bulkMoveSelected('spam')} title="Mark as spam">🛑 Spam</button>
+              <button className="toolbar-btn danger" onClick={() => bulkMoveSelected('trash')} title="Move to trash">🗑 Trash</button>
               <button className="toolbar-btn" onClick={clearSelection} title="Clear selection">✕ Clear</button>
             </>
           ) : (

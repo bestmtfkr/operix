@@ -8,7 +8,7 @@ export default async (req) => {
   }
 
   try {
-    const { company_id, mailbox_id, max_results, after_date } = await req.json()
+    const { company_id, mailbox_id, max_results, after_date, folder = 'inbox' } = await req.json()
     if (!company_id && !mailbox_id) {
       return new Response(JSON.stringify({ error: 'company_id or mailbox_id required' }), { status: 400 })
     }
@@ -16,9 +16,18 @@ export default async (req) => {
     const supabase = makeAdmin()
     const { mailbox, accessToken } = await loadMailbox(supabase, { mailbox_id, company_id })
 
+    // Map folder → Gmail query operator
+    const folderQuery = {
+      inbox: 'in:inbox',
+      sent: 'in:sent',
+      spam: 'in:spam',
+      trash: 'in:trash',
+      drafts: 'in:drafts'
+    }[folder] || 'in:inbox'
+
     // Fetch message list
     const listRes = await fetch(
-      `https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=${max_results || 10}&q=is:inbox${after_date ? ' after:' + after_date : ''}`,
+      `https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=${max_results || 10}&q=${encodeURIComponent(folderQuery + (after_date ? ' after:' + after_date : ''))}&includeSpamTrash=${folder === 'spam' || folder === 'trash' ? 'true' : 'false'}`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     )
     const listData = await listRes.json()
@@ -101,6 +110,7 @@ export default async (req) => {
 
     return new Response(JSON.stringify({
       emails,
+      folder,
       mailbox_id: mailbox.id || null,
       mailbox_email: mailbox.email_address
     }), { headers: { 'Content-Type': 'application/json' } })
