@@ -93,6 +93,63 @@ export default function SmartInbox() {
   const [inboxesOpen, setInboxesOpen] = useState(true)
   const [foldersOpen, setFoldersOpen] = useState(false)
 
+  // Email sender classifications (email_senders table)
+  // Map<lowercased email address, sender row> — built once, used for:
+  //  - render-time LEAD/SUPPLIER badges on email rows
+  //  - AI pass-through prompt injection in Create-Job flow
+  //  - in-header "classify sender" dropdown
+  const [senderMap, setSenderMap] = useState(new Map())
+
+  async function loadSenders() {
+    if (!companyId) return
+    const { data } = await supabase
+      .from('email_senders')
+      .select('id, email_address, sender_type, display_name, linked_client_id')
+      .eq('company_id', companyId)
+    const m = new Map()
+    for (const s of data || []) {
+      m.set((s.email_address || '').toLowerCase().trim(), s)
+    }
+    setSenderMap(m)
+  }
+
+  useEffect(() => { loadSenders() }, [companyId])
+
+  // Extract and normalize an email address from "Name <email@x.com>" or raw
+  function normalizeEmail(raw) {
+    if (!raw) return ''
+    const m = raw.match(/<([^>]+)>/)
+    const addr = (m ? m[1] : raw).trim().toLowerCase()
+    return addr
+  }
+
+  // Lookup a sender's classification from the local map
+  function resolveSender(rawFrom) {
+    const addr = normalizeEmail(rawFrom)
+    if (!addr) return null
+    return senderMap.get(addr) || null
+  }
+
+  async function classifySender(rawFrom, newType) {
+    const addr = normalizeEmail(rawFrom)
+    if (!addr) return
+    const existing = senderMap.get(addr)
+    if (existing) {
+      await supabase.from('email_senders')
+        .update({ sender_type: newType, classified_by: profile?.id })
+        .eq('id', existing.id)
+    } else {
+      await supabase.from('email_senders').insert({
+        company_id: companyId,
+        email_address: addr,
+        sender_type: newType,
+        classified_by: profile?.id
+      })
+    }
+    showToast(`Classified as ${newType.replace('_', ' ')}`)
+    loadSenders()
+  }
+
   // Bulk selection for the new toolbar
   const [selectedEmails, setSelectedEmails] = useState(new Set())
   function toggleSelectEmail(id) {
@@ -831,19 +888,34 @@ Only return valid JSON.`, 256, 'haiku'
 
   // AI-extract the real client name from email sender/signature/body.
   // Runs in background when Create-Job modal opens with no pre-extracted data.
+  // Adapts the prompt based on the sender's classification (lead_source, supplier, etc).
   async function aiExtractClientName(email) {
     const from = email.from_name || email.from_address || ''
     const body = (email.body || email.raw_text || email.summary || '').slice(0, 1500)
-    const prompt = `Extract the real company or client name from this email. Prioritize signatures over display names. Ignore personal gmail/yahoo addresses — look at the signature block, letterhead, or mentioned company.
+    const sender = resolveSender(email.from_address)
+
+    // Base prompt — adjusted below based on sender type
+    let instructionBlock = `Extract the real company or client name from this email. Prioritize signatures over display names. Ignore personal gmail/yahoo addresses — look at the signature block, letterhead, or mentioned company.`
+
+    if (sender?.sender_type === 'lead_source') {
+      instructionBlock = `The sender of this email is a lead aggregator (${sender.display_name || from}). Do NOT use the sender's name or email as the client. Read the body of the email carefully to extract the END-CUSTOMER'S real name (the homeowner, property owner, or business that is actually requesting the service). Ignore the aggregator's branding.`
+    } else if (sender?.sender_type === 'supplier') {
+      instructionBlock = `The sender is a known supplier/vendor (${sender.display_name || from}). The client is likely a project owner or contractor mentioned in the body, NOT the supplier. Look for the project name or the company the supplier is quoting for.`
+    } else if (sender?.sender_type === 'insurance') {
+      instructionBlock = `The sender is an insurance company/adjuster. The client is the policyholder (property owner) mentioned in the body, not the adjuster. Extract the insured party's name.`
+    }
+
+    const prompt = `${instructionBlock}
 
 From: ${from}
 Subject: ${email.subject || ''}
 
 ${body}
 
-Reply with ONLY the company name, nothing else. If you truly cannot find one, reply with just the person's name from the signature. Do not add quotes or explanations.`
+Reply with ONLY the name, nothing else. If you truly cannot find one, reply with just the most relevant name from the body. Do not add quotes or explanations.`
+
     try {
-      const result = await askAI(prompt, 'You extract client/company names from construction industry emails. Reply with only the name.', 60, 'haiku')
+      const result = await askAI(prompt, 'You extract client/company names from construction industry emails. Reply with only the name.', 80, 'haiku')
       if (!result) return null
       const cleaned = result.trim().replace(/^["']|["']$/g, '').split('\n')[0].trim()
       if (cleaned.length < 2 || cleaned.length > 120) return null
@@ -1487,6 +1559,19 @@ Reply with ONLY the company name, nothing else. If you truly cannot find one, re
       </div>
 
       {/* Gmail-style header */}
+      {(() => {
+        const currentSender = resolveSender(showDetail?.from_address)
+        const currentSenderType = currentSender?.sender_type || ''
+        const senderTypeBadge = {
+          lead_source: { label: 'LEAD SOURCE', bg: 'rgba(255,184,0,0.15)', color: '#FFB800' },
+          supplier:    { label: 'SUPPLIER',    bg: 'rgba(33,150,243,0.15)', color: '#2196F3' },
+          insurance:   { label: 'INSURANCE',   bg: 'rgba(139,92,246,0.15)', color: '#8B5CF6' },
+          client:      { label: 'CLIENT',      bg: 'rgba(0,212,160,0.15)',  color: '#00D4A0' },
+          internal:    { label: 'INTERNAL',    bg: 'rgba(122,135,153,0.2)', color: '#7A8799' },
+          spam:        { label: 'SPAM',        bg: 'rgba(255,59,92,0.15)',  color: '#FF3B5C' },
+          other:       { label: 'OTHER',       bg: 'rgba(122,135,153,0.15)', color: '#7A8799' }
+        }[currentSenderType]
+        return (
       <div className="email-header">
         {/* Avatar */}
         <div className="email-header-avatar" style={{ background: senderAvColor }}>
@@ -1495,9 +1580,29 @@ Reply with ONLY the company name, nothing else. If you truly cannot find one, re
 
         {/* Sender + recipients */}
         <div className="email-header-body">
-          {/* Sender line — name only + date right */}
+          {/* Sender line — name, classification badge, classify dropdown, date */}
           <div className="email-header-sender">
             <span className="email-header-name">{senderName}</span>
+            {senderTypeBadge && (
+              <span className="etag" style={{ background: senderTypeBadge.bg, color: senderTypeBadge.color, fontSize: 9 }}>
+                {senderTypeBadge.label}
+              </span>
+            )}
+            <select
+              className="sender-classify-select"
+              value={currentSenderType}
+              onChange={e => classifySender(showDetail.from_address, e.target.value)}
+              title="Classify sender"
+            >
+              <option value="">Classify...</option>
+              <option value="client">Client</option>
+              <option value="lead_source">Lead Source</option>
+              <option value="supplier">Supplier</option>
+              <option value="insurance">Insurance</option>
+              <option value="internal">Internal</option>
+              <option value="spam">Spam</option>
+              <option value="other">Other</option>
+            </select>
             <span className="email-header-date">{fullDate}</span>
           </div>
 
@@ -1547,6 +1652,8 @@ Reply with ONLY the company name, nothing else. If you truly cannot find one, re
           )}
         </div>
       </div>
+        )
+      })()}
 
       {/* Toolbar */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', paddingBottom: 12, marginBottom: 12, borderBottom: '1px solid var(--border)' }}>
@@ -1909,6 +2016,16 @@ Reply with ONLY the company name, nothing else. If you truly cannot find one, re
           const init = (email.from_name || email.from_address || '?').charAt(0).toUpperCase()
           // Real: show the dot in unified view when we have 2+ mailboxes
           const emailAccount = isUnifiedView && mailboxes.length > 1 ? accountForEmail(email) : null
+          // Sender classification badge — render-time lookup from senderMap
+          const rowSender = resolveSender(email.from_address)
+          const rowSenderBadge = rowSender?.sender_type && rowSender.sender_type !== 'client' ? ({
+            lead_source: { label: 'LEAD', bg: 'rgba(255,184,0,0.15)', color: '#FFB800' },
+            supplier:    { label: 'SUPPLIER', bg: 'rgba(33,150,243,0.15)', color: '#2196F3' },
+            insurance:   { label: 'INSURANCE', bg: 'rgba(139,92,246,0.15)', color: '#8B5CF6' },
+            internal:    { label: 'INTERNAL', bg: 'rgba(122,135,153,0.2)', color: '#7A8799' },
+            spam:        { label: 'SPAM', bg: 'rgba(255,59,92,0.15)', color: '#FF3B5C' },
+            other:       { label: 'OTHER', bg: 'rgba(122,135,153,0.15)', color: '#7A8799' }
+          })[rowSender.sender_type] : null
 
           const isSelected = selectedEmails.has(email.id)
           return (
@@ -1947,6 +2064,9 @@ Reply with ONLY the company name, nothing else. If you truly cannot find one, re
                 <div className="email-subj">{email.subject}</div>
                 <div className="email-snippet">{email.summary || (email.body || '').slice(0, 80)}</div>
                 <div className="email-tags">
+                  {rowSenderBadge && (
+                    <span className="etag" style={{ background: rowSenderBadge.bg, color: rowSenderBadge.color }}>{rowSenderBadge.label}</span>
+                  )}
                   <span className="etag" style={{ background: catStyle.bg, color: catStyle.color }}>{cat.toUpperCase()}</span>
                   {email.priority === 'urgent' && <span className="etag" style={{ background: 'rgba(255,59,92,0.12)', color: '#FF3B5C' }}>URGENT</span>}
                   {isLinked && linkedJob && <span className="etag" style={{ background: 'rgba(33,150,243,0.12)', color: 'var(--blue)' }}>🔗 {linkedJob.job_number}</span>}

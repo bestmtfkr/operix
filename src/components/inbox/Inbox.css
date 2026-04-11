@@ -731,10 +731,30 @@
 }
 .email-header-sender {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 3px;
+}
+.email-header-sender .email-header-date {
+  margin-left: auto;
+}
+
+/* Subtle sender classification dropdown — sits next to the name */
+.sender-classify-select {
+  padding: 2px 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text3);
+  font-size: 10px;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  outline: none;
+}
+.sender-classify-select:hover {
+  border-color: var(--text3);
+  color: var(--text2);
 }
 .email-header-name {
   font-size: 15px;
