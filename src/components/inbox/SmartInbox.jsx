@@ -269,41 +269,33 @@ export default function SmartInbox() {
 
   // Fetch newest emails for a SPECIFIC mailbox + folder and insert into inbox_emails.
   // Returns the number of new emails saved.
+  // Incremental sync: no after_date filter — we fetch the newest 100 and dedupe
+  // by gmail_id. Previous after_date logic was picking whichever row happened to
+  // be inserted last (which could be an old bulk-imported email) and causing
+  // Gmail to only return historical matches that all deduped → silent failure.
   async function fetchMailboxEmails(mailboxId, silent = false, folder = 'inbox') {
     try {
-      // Find the newest email we already have for this (mailbox, folder) combo
-      const { data: newest } = await supabase
-        .from('inbox_emails')
-        .select('metadata')
-        .eq('mailbox_id', mailboxId)
-        .eq('folder', folder)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      const afterDate = newest?.metadata?.date
-        ? new Date(newest.metadata.date).toISOString().split('T')[0].replace(/-/g, '/')
-        : null
-
       const res = await fetch('/.netlify/functions/gmail-fetch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mailbox_id: mailboxId, max_results: 100, after_date: afterDate, folder })
+        body: JSON.stringify({ mailbox_id: mailboxId, max_results: 100, folder })
       })
       const data = await res.json()
       if (data.error) {
+        console.warn('[sync]', folder, 'gmail-fetch error:', data.error)
         if (!silent) showToast('Gmail: ' + data.error)
         return 0
       }
+      console.log(`[sync] ${folder}@${mailboxId.slice(0,8)}: Gmail returned ${(data.emails || []).length} messages`)
 
-      // Skip duplicates already in this (mailbox, folder)
+      // Broader dedupe: pull up to 5000 known gmail_ids for this (mailbox, folder).
+      // Querying metadata->>gmail_id directly so we don't rely on insertion order.
       const { data: existing } = await supabase
         .from('inbox_emails')
         .select('metadata')
         .eq('mailbox_id', mailboxId)
         .eq('folder', folder)
-        .order('created_at', { ascending: false })
-        .limit(500)
+        .limit(5000)
       const existingIds = new Set((existing || []).map(e => e.metadata?.gmail_id).filter(Boolean))
       // Skip dupes AND truly-empty emails at sync time (Option C)
       const newEmails = (data.emails || []).filter(e => {
