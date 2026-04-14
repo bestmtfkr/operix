@@ -297,14 +297,19 @@ export default function SmartInbox() {
         .eq('folder', folder)
         .limit(5000)
       const existingIds = new Set((existing || []).map(e => e.metadata?.gmail_id).filter(Boolean))
-      // Skip dupes AND truly-empty emails at sync time (Option C)
+      // Skip dupes + TRULY empty emails (tracking pixels / broken API responses).
+      // We use Gmail's own `snippet` as the final check — if Gmail doesn't have
+      // a snippet, the email genuinely has no content. Previous filter was too
+      // aggressive and dropped real emails with HTML-only bodies or rich MIME parts.
       const newEmails = (data.emails || []).filter(e => {
         if (existingIds.has(e.gmail_id)) return false
         const from = (e.from || '').trim().replace(/^<|>$/g, '')
         const subj = (e.subject || '').trim()
+        const snippet = (e.snippet || '').trim()
         const bodyLen = (e.body || '').trim().length + (e.html_body || '').trim().length
-        if (!from && !subj && bodyLen < 30) {
-          console.log('Skipping empty email at sync:', e.gmail_id)
+        const totallyEmpty = !from && !subj && !snippet && bodyLen === 0
+        if (totallyEmpty) {
+          console.log('[sync] Skipping truly empty email:', e.gmail_id)
           return false
         }
         return true
@@ -314,23 +319,27 @@ export default function SmartInbox() {
       // Build a one-shot contact lookup for this batch — only query the
       // distinct sender addresses we're about to insert. Avoids per-row N+1.
       const senderAddrsInBatch = Array.from(new Set(
-        newEmails.map(e => normalizeEmail(e.from)).filter(Boolean)
+        newEmails.map(e => normalizeEmail(e.from)).filter(a => a && a.length > 0)
       ))
       const contactByEmail = new Map()
       const clientIdByContact = new Map()
       if (senderAddrsInBatch.length > 0) {
-        const { data: matchingContacts } = await supabase
-          .from('contacts')
-          .select('id, client_id, email')
-          .eq('company_id', companyId)
-          .is('archived_at', null)
-          .in('email', senderAddrsInBatch)
-        for (const c of matchingContacts || []) {
-          const key = (c.email || '').toLowerCase().trim()
-          if (key && !contactByEmail.has(key)) {
-            contactByEmail.set(key, c.id)
-            clientIdByContact.set(c.id, c.client_id)
+        try {
+          const { data: matchingContacts } = await supabase
+            .from('contacts')
+            .select('id, client_id, email')
+            .eq('company_id', companyId)
+            .is('archived_at', null)
+            .in('email', senderAddrsInBatch)
+          for (const c of matchingContacts || []) {
+            const key = (c.email || '').toLowerCase().trim()
+            if (key && !contactByEmail.has(key)) {
+              contactByEmail.set(key, c.id)
+              clientIdByContact.set(c.id, c.client_id)
+            }
           }
+        } catch (e) {
+          console.warn('[sync] contact lookup failed, continuing without:', e?.message)
         }
       }
 
@@ -1554,20 +1563,18 @@ Return ONLY a JSON object (no markdown fences, no commentary):
     clearSelection()
   }
 
-  // Detect truly-empty emails (no sender AND no subject AND no body content)
-  // These are usually tracking pixels, auto-bounces, or broken API responses
+  // Detect truly-empty rows (tracking pixels / bounces). Conservative so we
+  // don't hide real emails that happen to have HTML-only bodies or sparse fields.
   function isEmptyEmail(email) {
     const from = (email.from_address || '').trim().replace(/^<|>$/g, '')
     const subj = (email.subject || '').trim()
     const bodyLen = (email.body || '').trim().length + (email.html_body || '').trim().length
-    const summary = (email.summary || '').trim().toLowerCase()
-    const hallucinatedSummary = summary.includes('empty email') ||
-                                summary.includes('no subject') ||
-                                summary.includes('no sender') ||
-                                summary.includes('no content')
-    if (!from && !subj && bodyLen < 30) return true
-    if (!from && !subj && hallucinatedSummary) return true
-    return false
+    const summary = (email.summary || '').trim()
+    // Only drop if EVERYTHING is empty AND the summary looks like an AI hallucination
+    const hallucinatedSummary = summary.toLowerCase().includes('empty email') ||
+                                summary.toLowerCase().includes('no subject line') ||
+                                summary.toLowerCase().includes('no sender')
+    return !from && !subj && bodyLen === 0 && (!summary || hallucinatedSummary)
   }
 
   // Parse "Name <email@x.com>" → "email@x.com"
