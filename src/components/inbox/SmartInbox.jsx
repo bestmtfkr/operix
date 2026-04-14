@@ -288,15 +288,25 @@ export default function SmartInbox() {
       }
       console.log(`[sync] ${folder}@${mailboxId.slice(0,8)}: Gmail returned ${(data.emails || []).length} messages`)
 
-      // Broader dedupe: pull up to 5000 known gmail_ids for this (mailbox, folder).
-      // Querying metadata->>gmail_id directly so we don't rely on insertion order.
-      const { data: existing } = await supabase
-        .from('inbox_emails')
-        .select('metadata')
-        .eq('mailbox_id', mailboxId)
-        .eq('folder', folder)
-        .limit(5000)
-      const existingIds = new Set((existing || []).map(e => e.metadata?.gmail_id).filter(Boolean))
+      // Targeted dedupe — only check the gmail_ids we're about to insert.
+      // Way faster than pulling 5000 metadata rows. Uses Supabase's JSON
+      // arrow-string operator which works well for IN-list checks.
+      const candidateIds = (data.emails || [])
+        .map(e => e.gmail_id)
+        .filter(Boolean)
+      let existingIds = new Set()
+      if (candidateIds.length > 0) {
+        try {
+          const { data: existing } = await supabase
+            .from('inbox_emails')
+            .select('metadata')
+            .eq('mailbox_id', mailboxId)
+            .in('metadata->>gmail_id', candidateIds)
+          existingIds = new Set((existing || []).map(e => e.metadata?.gmail_id).filter(Boolean))
+        } catch (e) {
+          console.warn('[sync] dedupe lookup failed, falling back to insert-with-ignore:', e?.message)
+        }
+      }
       // Skip dupes + TRULY empty emails (tracking pixels / broken API responses).
       // We use Gmail's own `snippet` as the final check — if Gmail doesn't have
       // a snippet, the email genuinely has no content. Previous filter was too
@@ -738,7 +748,7 @@ export default function SmartInbox() {
     }, { rootMargin: '400px' })
     observer.observe(sentinelRef.current)
     return () => observer.disconnect()
-  }, [emailPage, hasMore, loadingMore, searchResults, selectedView, filter])
+  }, [emailPage, hasMore, loadingMore, searchResults, selectedView, filter, selectedAccountId, selectedFolder])
 
   async function loadJobs() {
     const { data } = await supabase.from('jobs')
